@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Playground</string>
+    <string name="cd_filter_results">Filter Search</string>
+    <string name="cd_freelancer_profile_picture">Profile Picture</string>
+    <string name="cd_profile_tab">Profile Tab</string> <string name="audio_tab">Audio</string>
+    <string name="video_tab">Video</string>
+    <string name="now_playing">Now Playing</string>
+    <string name="permission_required">Storage Permission Required</string>
+    <string name="permission_rationale">Loose needs access to your media files to play audio and video.</string>
+    <string name="grant_permission">Grant Permission</string>
+    <string name="no_audio_found">No audio files found</string>
+    <string name="no_video_found">No video files found</string>
+</resources>
