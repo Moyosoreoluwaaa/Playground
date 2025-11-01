@@ -1,7 +1,7 @@
 package com.loose.mediaplayer.ui.viewmodel
 
 import android.app.Application
-import android.net.Uri
+import android.content.ComponentName
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,20 +11,13 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer
-import com.playground.loose.AudioItem
-import com.playground.loose.MediaScanner
-import com.playground.loose.PlaybackState
-import com.playground.loose.PreferencesManager
-import com.playground.loose.RepeatMode
-import com.playground.loose.SortOption
-import com.playground.loose.VideoItem
-import com.playground.loose.ViewMode
-import com.playground.loose.attachDebugger
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
+import com.playground.loose.*
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlin.collections.find
-import kotlin.collections.map
 
 @UnstableApi
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
@@ -32,18 +25,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val preferencesManager = PreferencesManager(application)
     private val mediaScanner = MediaScanner(application)
 
-    // ExoPlayer instance
-    val player: ExoPlayer = ExoPlayer.Builder(application)
-        .setVideoScalingMode(C.VIDEO_SCALING_MODE_SCALE_TO_FIT)
-        .setAudioAttributes(
-            AudioAttributes.Builder()
-                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                .setUsage(C.USAGE_MEDIA)
-                .build(),
-            true
-        )
-        .setHandleAudioBecomingNoisy(true)
-        .build()
+    // MediaController for background service
+    private var controllerFuture: ListenableFuture<MediaController>? = null
+    private var controller: MediaController? = null
+
+    // Use the controller's player instance
+    val player: Player
+        get() = controller ?: createFallbackPlayer()
 
     // State flows
     private val _audioItems = MutableStateFlow<List<AudioItem>>(emptyList())
@@ -89,11 +77,43 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var currentIndex = 0
 
     init {
-        setupPlayerListener()
+        initializeMediaController()
         loadPreferencesAndRestoreSession()
+    }
 
-        // Attach debugger in debug builds
-        player.attachDebugger()
+    private fun initializeMediaController() {
+        val sessionToken = SessionToken(
+            getApplication(),
+            ComponentName(getApplication(), MediaPlaybackService::class.java)
+        )
+
+        controllerFuture = MediaController.Builder(getApplication(), sessionToken)
+            .buildAsync()
+
+        controllerFuture?.addListener(
+            {
+                controller = controllerFuture?.get()
+                setupPlayerListener()
+
+                // Attach debugger in debug builds
+                controller?.attachDebugger()
+            },
+            MoreExecutors.directExecutor()
+        )
+    }
+
+    private fun createFallbackPlayer(): Player {
+        // Fallback player in case MediaController isn't ready
+        return androidx.media3.exoplayer.ExoPlayer.Builder(getApplication())
+            .setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .setUsage(C.USAGE_MEDIA)
+                    .build(),
+                true
+            )
+            .setHandleAudioBecomingNoisy(true)
+            .build()
     }
 
     private fun setupPlayerListener() {
@@ -115,7 +135,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     _duration.value = player.duration
                 }
 
-                // Handle end of media
                 if (playbackState == Player.STATE_ENDED) {
                     handlePlaybackEnded()
                 }
@@ -160,11 +179,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 _repeatMode.value = prefs.lastPlaybackState.repeatMode
                 _isAudioMode.value = prefs.lastPlaybackState.isAudioMode
 
-                // Load media
                 loadAudioItems()
                 loadVideoItems()
 
-                // Restore playback session ONCE
                 val state = prefs.lastPlaybackState
                 if (state.mediaId != 0L && !isRestoringSession) {
                     isRestoringSession = true
@@ -210,25 +227,21 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var lastPlayedMediaId = 0L
 
     fun playAudio(audio: AudioItem, autoPlay: Boolean = true) {
-        // Prevent duplicate calls
         if (lastPlayedMediaId == audio.id && _currentAudioItem.value?.id == audio.id) {
             Log.d(TAG, "Ignoring duplicate playAudio call for ${audio.title}")
             return
         }
 
         lastPlayedMediaId = audio.id
-
         Log.d(TAG, "=== PLAY AUDIO START ===")
         Log.d(TAG, "Title: ${audio.title}")
         Log.d(TAG, "URI: ${audio.uri}")
         Log.d(TAG, "AutoPlay: $autoPlay")
 
         try {
-            // Reset player state properly
             player.stop()
             player.clearMediaItems()
 
-            // Build media item
             val mediaItem = MediaItem.Builder()
                 .setUri(audio.uri)
                 .setMediaId(audio.id.toString())
@@ -242,11 +255,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 )
                 .build()
 
-            // Set media and prepare
             player.setMediaItem(mediaItem)
             player.prepare()
-
-            // CRITICAL: Set playWhenReady AFTER prepare
             player.playWhenReady = autoPlay
 
             Log.d(TAG, "Player state after setup:")
@@ -260,7 +270,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             currentIndex = _audioItems.value.indexOf(audio)
 
             saveCurrentState()
-
             Log.d(TAG, "=== PLAY AUDIO END ===")
         } catch (e: Exception) {
             Log.e(TAG, "Error playing audio", e)
@@ -268,14 +277,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun playVideo(video: VideoItem, autoPlay: Boolean = true) {
-        // Prevent duplicate calls
         if (lastPlayedMediaId == video.id && _currentVideoItem.value?.id == video.id) {
             Log.d(TAG, "Ignoring duplicate playVideo call for ${video.title}")
             return
         }
 
         lastPlayedMediaId = video.id
-
         Log.d(TAG, "=== PLAY VIDEO START ===")
         Log.d(TAG, "Title: ${video.title}")
         Log.d(TAG, "URI: ${video.uri}")
@@ -283,11 +290,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         Log.d(TAG, "Resolution: ${video.width}x${video.height}")
 
         try {
-            // Reset player state properly
             player.stop()
             player.clearMediaItems()
 
-            // Build media item
             val mediaItem = MediaItem.Builder()
                 .setUri(video.uri)
                 .setMediaId(video.id.toString())
@@ -298,11 +303,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 )
                 .build()
 
-            // Set media and prepare
             player.setMediaItem(mediaItem)
             player.prepare()
-
-            // CRITICAL: Set playWhenReady AFTER prepare
             player.playWhenReady = autoPlay
 
             Log.d(TAG, "Player state after setup:")
@@ -316,7 +318,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             currentIndex = _videoItems.value.indexOf(video)
 
             saveCurrentState()
-
             Log.d(TAG, "=== PLAY VIDEO END ===")
         } catch (e: Exception) {
             Log.e(TAG, "Error playing video", e)
@@ -334,7 +335,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             player.pause()
         } else {
             if (player.playbackState == Player.STATE_IDLE) {
-                // Player was idle, need to prepare
                 Log.d(TAG, "Player was idle, re-preparing...")
                 player.prepare()
             }
@@ -447,7 +447,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     override fun onCleared() {
-        player.release()
+        controllerFuture?.let { MediaController.releaseFuture(it) }
         super.onCleared()
     }
 }
