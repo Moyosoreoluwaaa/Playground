@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -41,122 +42,85 @@ fun AudioLibraryScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
 
-    // Filter audio items based on search query
-    val filteredAudioItems = remember(audioItems, searchQuery) {
-        if (searchQuery.isBlank()) {
-            audioItems
-        } else {
-            audioItems.filter { audio ->
-                audio.title.contains(searchQuery, ignoreCase = true) ||
-                        audio.artist?.contains(searchQuery, ignoreCase = true) == true ||
-                        audio.album?.contains(searchQuery, ignoreCase = true) == true
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+
+    val filteredAudio = remember(audioItems, searchQuery) {
+        if (searchQuery.isBlank()) audioItems else
+            audioItems.filter {
+                it.title.contains(searchQuery, true) ||
+                        it.artist?.contains(searchQuery, true) == true ||
+                        it.album?.contains(searchQuery, true) == true
             }
-        }
     }
 
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            if (isSearchActive) {
-                // Search Bar
-                SearchBar(
-                    query = searchQuery,
-                    onQueryChange = { searchQuery = it },
-                    onSearch = { },
-                    active = false,
-                    onActiveChange = { },
-                    placeholder = { Text("Search music...") },
-                    leadingIcon = {
-                        IconButton(onClick = {
-                            isSearchActive = false
-                            searchQuery = ""
-                        }) {
-                            Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
-                        }
-                    },
-                    trailingIcon = {
-                        if (searchQuery.isNotEmpty()) {
-                            IconButton(onClick = { searchQuery = "" }) {
-                                Icon(Icons.Filled.Clear, contentDescription = "Clear")
-                            }
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) { }
-            } else {
-                TopAppBar(
-                    title = { Text("Music Library") },
-                    actions = {
-                        // Search button
+            MediumTopAppBar(
+                title = {
+                    if (isSearchActive) {
+                        TextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            placeholder = { Text("Search music...") },
+                            singleLine = true,
+                            leadingIcon = {
+                                IconButton(onClick = {
+                                    isSearchActive = false
+                                    searchQuery = ""
+                                }) {
+                                    Icon(Icons.Filled.ArrowBack, null)
+                                }
+                            },
+                            trailingIcon = {
+                                if (searchQuery.isNotEmpty()) {
+                                    IconButton(onClick = { searchQuery = "" }) {
+                                        Icon(Icons.Filled.Clear, null)
+                                    }
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        Text("Music Library")
+                    }
+                },
+                actions = {
+                    if (!isSearchActive) {
                         IconButton(onClick = { isSearchActive = true }) {
-                            Icon(
-                                imageVector = Icons.Filled.Search,
-                                contentDescription = "Search"
-                            )
+                            Icon(Icons.Filled.Search, "Search")
                         }
-
-                        // View mode toggle
                         IconButton(onClick = {
-                            onViewModeChange(
-                                if (viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST
-                            )
+                            onViewModeChange(if (viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST)
                         }) {
                             Icon(
-                                imageVector = if (viewMode == ViewMode.LIST) {
-                                    Icons.Filled.GridView
-                                } else {
-                                    Icons.Filled.ViewList
-                                },
-                                contentDescription = "Toggle view"
+                                if (viewMode == ViewMode.LIST) Icons.Filled.GridView else Icons.Filled.ViewList,
+                                "Toggle view"
                             )
                         }
-
-                        // Sort menu
                         IconButton(onClick = { showSortMenu = true }) {
-                            Icon(
-                                imageVector = Icons.Filled.Sort,
-                                contentDescription = "Sort"
-                            )
+                            Icon(Icons.Filled.Sort, "Sort")
                         }
-
                         DropdownMenu(
                             expanded = showSortMenu,
                             onDismissRequest = { showSortMenu = false }
                         ) {
-                            DropdownMenuItem(
-                                text = { Text("Name") },
-                                onClick = {
-                                    onSortChange(SortOption.NAME)
-                                    showSortMenu = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Date Added") },
-                                onClick = {
-                                    onSortChange(SortOption.DATE_ADDED)
-                                    showSortMenu = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Duration") },
-                                onClick = {
-                                    onSortChange(SortOption.DURATION)
-                                    showSortMenu = false
-                                }
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Size") },
-                                onClick = {
-                                    onSortChange(SortOption.SIZE)
-                                    showSortMenu = false
-                                }
-                            )
+                            SortOption.entries.forEach { option ->
+                                DropdownMenuItem(
+                                    text = { Text(option.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                                    onClick = {
+                                        onSortChange(option)
+                                        showSortMenu = false
+                                    }
+                                )
+                            }
                         }
                     }
-                )
-            }
+                },
+                scrollBehavior = scrollBehavior
+            )
         },
         bottomBar = {
-            // Mini Player at bottom
             if (currentAudioId != null) {
                 MiniPlayer(
                     currentAudio = currentAudio,
@@ -164,46 +128,26 @@ fun AudioLibraryScreen(
                     isPlaying = isPlaying,
                     isAudioMode = true,
                     onPlayPause = onPlayPause,
-                    onShowQueue = { /* TODO: Show queue */ },
+                    onShowQueue = {},
                     onNext = onNext,
                     onClick = onNavigateToPlayer
                 )
             }
         }
     ) { padding ->
-        if (filteredAudioItems.isEmpty()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    if (searchQuery.isNotEmpty()) {
-                        "No results found for \"$searchQuery\""
-                    } else {
-                        "No audio files found"
-                    }
-                )
+        if (filteredAudio.isEmpty()) {
+            Box(Modifier.fillMaxSize().padding(padding), Alignment.Center) {
+                Text(if (searchQuery.isEmpty()) "No audio files found" else "No results for \"$searchQuery\"")
             }
         } else {
             when (viewMode) {
-                ViewMode.LIST -> AudioListView(
-                    audioItems = filteredAudioItems,
-                    currentAudioId = currentAudioId,
-                    onAudioClick = onAudioClick,
-                    modifier = Modifier.padding(padding)
-                )
-                ViewMode.GRID -> AudioGridView(
-                    audioItems = filteredAudioItems,
-                    currentAudioId = currentAudioId,
-                    onAudioClick = onAudioClick,
-                    modifier = Modifier.padding(padding)
-                )
+                ViewMode.LIST -> AudioListView(filteredAudio, currentAudioId, onAudioClick, Modifier.padding(padding))
+                ViewMode.GRID -> AudioGridView(filteredAudio, currentAudioId, onAudioClick, Modifier.padding(padding))
             }
         }
     }
 }
+
 
 @Composable
 fun AudioListView(
