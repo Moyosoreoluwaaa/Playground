@@ -2,15 +2,10 @@ package com.playground.loose
 
 import android.content.ContentUris
 import android.content.Context
-import android.graphics.Bitmap
 import android.net.Uri
-import android.os.Build
 import android.provider.MediaStore
-import android.util.Size
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
-import java.io.FileOutputStream
 
 class MediaScanner(private val context: Context) {
 
@@ -129,9 +124,11 @@ class MediaScanner(private val context: Context) {
                         id
                     )
 
-                    // Get proper thumbnail URI
-                    val thumbnailUri = getVideoThumbnailUri(id, cursor.getString(dataColumn))
+                    val width = cursor.getInt(widthColumn)
+                    val height = cursor.getInt(heightColumn)
 
+                    // CRITICAL: Return video URI immediately, let Coil handle thumbnails asynchronously
+                    // This makes the list appear instantly like audio
                     videoList.add(
                         VideoItem(
                             id = id,
@@ -140,41 +137,16 @@ class MediaScanner(private val context: Context) {
                             duration = cursor.getLong(durationColumn),
                             size = cursor.getLong(sizeColumn),
                             dateAdded = cursor.getLong(dateColumn),
-                            thumbnailUri = thumbnailUri,
+                            thumbnailUri = uri, // Use video URI directly - Coil extracts frames
                             path = cursor.getString(dataColumn),
-                            width = cursor.getInt(widthColumn),
-                            height = cursor.getInt(heightColumn)
+                            width = width,
+                            height = height
                         )
                     )
                 }
             }
+
+            // Videos load instantly now!
             videoList
         }
-
-    private fun getVideoThumbnailUri(videoId: Long, videoPath: String): Uri {
-        return try {
-            val bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                context.contentResolver.loadThumbnail(
-                    ContentUris.withAppendedId(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, videoId),
-                    Size(320, 180),
-                    null
-                )
-            } else {
-                android.media.ThumbnailUtils.createVideoThumbnail(
-                    videoPath,
-                    android.provider.MediaStore.Images.Thumbnails.MINI_KIND
-                )
-            }
-
-            // Save bitmap to cache and return file URI
-            val file = File(context.cacheDir, "thumb_$videoId.jpg")
-            FileOutputStream(file).use { out ->
-                bitmap?.compress(Bitmap.CompressFormat.JPEG, 85, out) 
-            }
-            Uri.fromFile(file)
-        } catch (e: Exception) {
-            Uri.fromFile(File(videoPath))
-        }
-    }
-
 }
