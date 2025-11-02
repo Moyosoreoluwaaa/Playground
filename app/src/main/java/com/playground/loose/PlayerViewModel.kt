@@ -73,6 +73,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val _videoSortOption = MutableStateFlow(SortOption.NAME)
     val videoSortOption: StateFlow<SortOption> = _videoSortOption.asStateFlow()
 
+    private val _recentlyPlayedVideoIds = MutableStateFlow<List<Long>>(emptyList())
+    val recentlyPlayedVideoIds: StateFlow<List<Long>> = _recentlyPlayedVideoIds.asStateFlow()
+
     private var currentPlaylist = listOf<Long>()
     private var currentIndex = 0
 
@@ -178,6 +181,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 _videoSortOption.value = prefs.videoSortOption
                 _repeatMode.value = prefs.lastPlaybackState.repeatMode
                 _isAudioMode.value = prefs.lastPlaybackState.isAudioMode
+                _recentlyPlayedVideoIds.value = prefs.recentlyPlayedVideos.map { it.videoId }
 
                 loadAudioItems()
                 loadVideoItems()
@@ -316,6 +320,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             _isAudioMode.value = false
             currentPlaylist = _videoItems.value.map { it.id }
             currentIndex = _videoItems.value.indexOf(video)
+
+            // Add to recently played
+            viewModelScope.launch {
+                preferencesManager.addRecentlyPlayedVideo(video.id)
+                // Reload recently played list
+                _recentlyPlayedVideoIds.value =
+                    preferencesManager.appPreferences.first().recentlyPlayedVideos.map { it.videoId }
+            }
 
             saveCurrentState()
             Log.d(TAG, "=== PLAY VIDEO END ===")

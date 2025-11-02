@@ -86,7 +86,6 @@ dependencies {
     implementation("androidx.media3:media3-ui:1.8.0")
     implementation("androidx.media3:media3-common:1.8.0")
 
-
     // Navigation and Routing
     //------------------------------------------
     implementation(libs.androidx.navigation.compose)
@@ -94,6 +93,8 @@ dependencies {
     // Image Loading
     //------------------------------------------
     implementation(libs.coil.compose)
+    implementation("io.coil-kt:coil-video:2.7.0")
+
 
     // Testing Dependencies
     //------------------------------------------

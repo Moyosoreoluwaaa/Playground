@@ -10,7 +10,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
-import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -18,6 +17,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.loose.mediaplayer.ui.screen.*
 import com.loose.mediaplayer.ui.viewmodel.PlayerViewModel
+import com.playground.loose.AudioLibraryScreen
 import com.playground.loose.AudioPlayerScreen
 import com.playground.loose.VideoPlayerScreen
 
@@ -46,6 +46,7 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
     val videoViewMode by viewModel.videoViewMode.collectAsState()
     val audioSortOption by viewModel.audioSortOption.collectAsState()
     val videoSortOption by viewModel.videoSortOption.collectAsState()
+    val recentlyPlayedVideoIds by viewModel.recentlyPlayedVideoIds.collectAsState()
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -143,7 +144,8 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
                     currentVideo = currentVideo,
                     isPlaying = isPlaying,
                     onPlayPause = viewModel::playPause,
-                    onNext = viewModel::playNext
+                    onNext = viewModel::playNext,
+                    recentlyPlayedIds = recentlyPlayedVideoIds
                 )
             }
 

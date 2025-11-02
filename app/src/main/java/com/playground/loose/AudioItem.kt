@@ -29,6 +29,12 @@ data class VideoItem(
     val height: Int
 )
 
+// Recently played item
+data class RecentlyPlayedVideo(
+    val videoId: Long,
+    val playedAt: Long // timestamp
+)
+
 // Playback State
 data class PlaybackState(
     val mediaId: Long = 0L,
@@ -65,7 +71,8 @@ data class AppPreferences(
     val audioSortOption: SortOption = SortOption.NAME,
     val videoSortOption: SortOption = SortOption.NAME,
     val selectedTheme: AppTheme = AppTheme.DARK,
-    val lastPlaybackState: PlaybackState = PlaybackState()
+    val lastPlaybackState: PlaybackState = PlaybackState(),
+    val recentlyPlayedVideos: List<RecentlyPlayedVideo> = emptyList()
 )
 
 enum class AppTheme {

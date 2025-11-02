@@ -1,6 +1,7 @@
 package com.playground.loose
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,6 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -25,7 +27,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.tooling.preview.PreviewParameter
+import androidx.compose.ui.tooling.preview.PreviewParameterProvider
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import coil.compose.AsyncImage
 
 @Composable
@@ -35,6 +41,7 @@ fun MiniPlayer(
     isPlaying: Boolean,
     isAudioMode: Boolean,
     onPlayPause: () -> Unit,
+    onShowQueue: () -> Unit, // New parameter for the queue button
     onNext: () -> Unit,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
@@ -112,6 +119,14 @@ fun MiniPlayer(
                             contentDescription = "Next"
                         )
                     }
+
+                    // New Queue button
+                    IconButton(onClick = onShowQueue) {
+                        Icon(
+                            imageVector = Icons.Filled.QueueMusic,
+                            contentDescription = "Show Queue"
+                        )
+                    }
                 }
             }
         }
@@ -126,4 +141,110 @@ fun MiniPlayerSpacer(
     if (isVisible) {
         Spacer(modifier = modifier.height(72.dp))
     }
+}
+
+// Dummy data classes if they don't exist yet or to make previews self-contained.
+// If you already have these defined, you can remove these dummy ones.
+//data class AudioItem(val title: String, val artist: String, val albumArtUri: String)
+
+// --- PREVIEWS ---
+
+@Preview(name = "Playing Audio", showBackground = true)
+@Composable
+fun MiniPlayerAudioPlayingPreview() {
+    val sampleAudio = AudioItem(
+        title = "The Golden Hour",
+        artist = "The Midnight Bloom",
+        albumArtUri = "https://picsum.photos/seed/a/200".toUri(), // Placeholder image
+        duration = 180000L,
+        size = 100000L,
+        dateAdded = 0L,
+        path = "",
+        id = 0L,
+        uri = "".toUri(),
+        album = null
+    )
+    MaterialTheme {
+        MiniPlayer(
+            currentAudio = sampleAudio,
+            currentVideo = null,
+            isPlaying = true,
+            isAudioMode = true,
+            onPlayPause = {},
+            onShowQueue = {},
+            onNext = {},
+            onClick = {}
+        )
+    }
+}
+
+@Preview(name = "Paused Video", showBackground = true)
+@Composable
+fun MiniPlayerVideoPausedPreview() {
+    val sampleVideo = VideoItem(
+        title = "A very long video title that should be truncated properly",
+        thumbnailUri = "https://picsum.photos/seed/v/200".toUri(), // Placeholder image
+        duration = 180000L,
+        size = 100000L,
+        dateAdded = 0L,
+        path = "",
+        id = 0L,
+        uri = "".toUri(),
+        width = 0,
+        height = 0
+    )
+    MaterialTheme {
+        MiniPlayer(
+            currentAudio = null,
+            currentVideo = sampleVideo,
+            isPlaying = false,
+            isAudioMode = false,
+            onPlayPause = {},
+            onShowQueue = {},
+            onNext = {},
+            onClick = {}
+        )
+    }
+}
+
+@Preview(name = "Hidden State", showBackground = true)
+@Composable
+fun MiniPlayerHiddenPreview() {
+    // The MiniPlayer itself will not render because title is null
+    MaterialTheme {
+        Box(modifier = Modifier.fillMaxWidth().height(72.dp)) {
+            MiniPlayer(
+                currentAudio = null,
+                currentVideo = null,
+                isPlaying = false,
+                isAudioMode = true,
+                onPlayPause = {},
+                onShowQueue = {},
+                onNext = {},
+                onClick = {}
+            )
+            // This preview demonstrates that nothing is shown when there's no media.
+            Text("MiniPlayer is hidden when no media is provided", modifier = Modifier.align(Alignment.Center))
+        }
+    }
+}
+
+@Preview(name = "MiniPlayer Spacer", showBackground = true)
+@Composable
+fun MiniPlayerSpacerPreview(
+    @PreviewParameter(BooleanPreviewProvider::class) isVisible: Boolean
+) {
+    // Shows the spacer when visible and nothing when not.
+    MaterialTheme {
+        Column {
+            Text(text = "Content above the player")
+            MiniPlayerSpacer(isVisible = isVisible)
+            Text(text = "Content below the player (will be pushed down if spacer is visible)")
+        }
+    }
+}
+
+// Helper class to provide both true and false for previews
+class BooleanPreviewProvider : PreviewParameterProvider<Boolean> {
+    override val values = sequenceOf(true, false)
 }

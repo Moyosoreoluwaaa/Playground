@@ -22,7 +22,6 @@ class MediaPlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
     private val channelId = "loose_media_playback"
-    private val notificationId = 1001
 
     override fun onCreate() {
         super.onCreate()
@@ -50,7 +49,6 @@ class MediaPlaybackService : MediaSessionService() {
     }
 
     private fun createSessionActivityIntent(): PendingIntent {
-        // Create intent to launch your main activity
         val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
@@ -66,22 +64,16 @@ class MediaPlaybackService : MediaSessionService() {
     private fun setupPlayerListener() {
         player.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(playbackState: Int) {
-                // Update notification based on playback state
                 when (playbackState) {
                     Player.STATE_READY, Player.STATE_BUFFERING -> {
                         // Keep service in foreground when playing or buffering
                     }
                     Player.STATE_IDLE, Player.STATE_ENDED -> {
-                        // Can stop foreground when idle
                         if (!player.playWhenReady) {
                             stopForeground(STOP_FOREGROUND_DETACH)
                         }
                     }
                 }
-            }
-
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                // Notification automatically updates via MediaSession
             }
         })
     }
@@ -99,7 +91,6 @@ class MediaPlaybackService : MediaSessionService() {
             ).apply {
                 description = "Media playback controls"
                 setShowBadge(false)
-                // Enable lock screen controls
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
             }
 
@@ -109,7 +100,6 @@ class MediaPlaybackService : MediaSessionService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        // Stop playback when app is removed from recent apps
         val stopPlayback = mediaSession?.player?.playWhenReady == false
         if (stopPlayback) {
             stopSelf()
@@ -133,30 +123,19 @@ class MediaPlaybackService : MediaSessionService() {
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>
         ): ListenableFuture<MutableList<MediaItem>> {
-            // FIXED: Keep the original URI from the request instead of replacing with mediaId
-            // The mediaItem already has the correct content:// URI set in PlayerViewModel
+            // CRITICAL FIX: Keep the original URI instead of replacing with mediaId
             val resolved = mediaItems.map { item ->
-                // If the item already has a URI, use it. Otherwise try to construct from mediaId
                 if (item.localConfiguration?.uri != null) {
-                    item // Already has URI, return as-is
+                    // Already has URI from PlayerViewModel, use as-is
+                    item
                 } else {
-                    // Fallback: this shouldn't happen with your current setup
+                    // Shouldn't happen, but fallback to using requestMetadata
                     item.buildUpon()
                         .setUri(item.requestMetadata.mediaUri)
                         .build()
                 }
             }.toMutableList()
             return Futures.immediateFuture(resolved)
-        }
-
-        // Handle custom commands if needed
-        override fun onCustomCommand(
-            session: MediaSession,
-            controller: MediaSession.ControllerInfo,
-            customCommand: androidx.media3.session.SessionCommand,
-            args: android.os.Bundle
-        ): ListenableFuture<androidx.media3.session.SessionResult> {
-            return super.onCustomCommand(session, controller, customCommand, args)
         }
     }
 }

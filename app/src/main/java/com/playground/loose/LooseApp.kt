@@ -1,0 +1,18 @@
+package com.playground.loose
+
+import android.app.Application
+import coil.Coil
+import coil.ImageLoader
+
+
+class LooseApp : Application() {
+    override fun onCreate() {
+        super.onCreate()
+//        val imageLoader = ImageLoader.Builder(this)
+//            .components {
+//                add(VideoFrameDecoder.Factory())
+//            }
+//            .build()
+//        Coil.setImageLoader(imageLoader)
+    }
+}
