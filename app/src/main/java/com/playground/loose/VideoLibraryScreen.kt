@@ -1,6 +1,5 @@
 package com.loose.mediaplayer.ui.screen
 
-import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -20,7 +19,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -52,11 +50,12 @@ fun VideoLibraryScreen(
 ) {
     var showSortMenu by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableStateOf(VideoFilter.ALL) }
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-
-    val filteredVideos = remember(videoItems, selectedFilter) {
-        when (selectedFilter) {
+    // Filter and search videos
+    val processedVideos = remember(videoItems, selectedFilter, searchQuery) {
+        val filtered = when (selectedFilter) {
             VideoFilter.ALL -> videoItems
             VideoFilter.SHORTS -> videoItems.filter {
                 it.height > it.width && it.duration < 240000
@@ -65,61 +64,155 @@ fun VideoLibraryScreen(
                 it.height <= it.width || it.duration >= 240000
             }
         }
+
+        if (searchQuery.isBlank()) {
+            filtered
+        } else {
+            filtered.filter { video ->
+                video.title.contains(searchQuery, ignoreCase = true)
+            }
+        }
     }
 
+    // Get recently played videos
     val recentVideos = remember(videoItems, recentlyPlayedIds) {
-        recentlyPlayedIds.take(10).mapNotNull { id -> videoItems.find { it.id == id } }
+        recentlyPlayedIds.take(10).mapNotNull { id ->
+            videoItems.find { it.id == id }
+        }
     }
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            // Wrap top app bar and filters in a Column so they move together
-            Column {
-                MediumTopAppBar(
+            if (isSearchActive) {
+                SearchBar(
+                    query = searchQuery,
+                    onQueryChange = { searchQuery = it },
+                    onSearch = { },
+                    active = false,
+                    onActiveChange = { },
+                    placeholder = { Text("Search videos...") },
+                    leadingIcon = {
+                        IconButton(onClick = {
+                            isSearchActive = false
+                            searchQuery = ""
+                        }) {
+                            Icon(Icons.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    trailingIcon = {
+                        if (searchQuery.isNotEmpty()) {
+                            IconButton(onClick = { searchQuery = "" }) {
+                                Icon(Icons.Filled.Clear, contentDescription = "Clear")
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { }
+            } else {
+                TopAppBar(
                     title = { Text("Video Library") },
                     actions = {
+                        // Search button
+                        IconButton(onClick = { isSearchActive = true }) {
+                            Icon(
+                                imageVector = Icons.Filled.Search,
+                                contentDescription = "Search"
+                            )
+                        }
+
+                        // View mode toggle
                         IconButton(onClick = {
                             onViewModeChange(
                                 if (viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST
                             )
                         }) {
                             Icon(
-                                imageVector = if (viewMode == ViewMode.LIST)
-                                    Icons.Filled.GridView else Icons.Filled.ViewList,
+                                imageVector = if (viewMode == ViewMode.LIST) {
+                                    Icons.Filled.GridView
+                                } else {
+                                    Icons.Filled.ViewList
+                                },
                                 contentDescription = "Toggle view"
                             )
                         }
 
+                        // Sort menu
                         IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.Filled.Sort, contentDescription = "Sort")
+                            Icon(
+                                imageVector = Icons.Filled.Sort,
+                                contentDescription = "Sort"
+                            )
                         }
 
                         DropdownMenu(
                             expanded = showSortMenu,
                             onDismissRequest = { showSortMenu = false }
                         ) {
-                            SortOption.entries.forEach { option ->
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            option.name.replace("_", " ")
-                                                .lowercase()
-                                                .replaceFirstChar { it.uppercase() }
-                                        )
-                                    },
-                                    onClick = {
-                                        onSortChange(option)
-                                        showSortMenu = false
-                                    }
-                                )
-                            }
+                            DropdownMenuItem(
+                                text = { Text("Name") },
+                                onClick = {
+                                    onSortChange(SortOption.NAME)
+                                    showSortMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Date Added") },
+                                onClick = {
+                                    onSortChange(SortOption.DATE_ADDED)
+                                    showSortMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Duration") },
+                                onClick = {
+                                    onSortChange(SortOption.DURATION)
+                                    showSortMenu = false
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Size") },
+                                onClick = {
+                                    onSortChange(SortOption.SIZE)
+                                    showSortMenu = false
+                                }
+                            )
                         }
-                    },
-                    scrollBehavior = scrollBehavior
+                    }
                 )
-
-                // 👇 Filters Row is now part of the collapsible area
+            }
+        },
+        bottomBar = {
+            // Mini Player at bottom
+            if (currentVideoId != null) {
+                MiniPlayer(
+                    currentAudio = null,
+                    currentVideo = currentVideo,
+                    isPlaying = isPlaying,
+                    isAudioMode = false,
+                    onPlayPause = onPlayPause,
+                    onShowQueue = { /* TODO: Show queue */ },
+                    onNext = onNext,
+                    onClick = onNavigateToPlayer
+                )
+            }
+        }
+    ) { padding ->
+        if (videoItems.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No video files found")
+            }
+        } else {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                // Filter Tabs (All / Shorts / Full)
                 VideoFilterTabs(
                     selectedFilter = selectedFilter,
                     onFilterSelected = { selectedFilter = it },
@@ -130,36 +223,11 @@ fun VideoLibraryScreen(
                         it.height <= it.width || it.duration >= 240000
                     }
                 )
-            }
-        },
-        bottomBar = {
-            if (currentVideoId != null) {
-                MiniPlayer(
-                    currentAudio = null,
-                    currentVideo = currentVideo,
-                    isPlaying = isPlaying,
-                    isAudioMode = false,
-                    onPlayPause = onPlayPause,
-                    onShowQueue = {},
-                    onNext = onNext,
-                    onClick = onNavigateToPlayer
-                )
-            }
-        }
-    ) { padding ->
-        // Content: collapsible top and lazy list below
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(bottom = 80.dp)
-        ) {
-            if (recentVideos.isNotEmpty()) {
-                item {
+
+                // Recently Played Section
+                if (recentVideos.isNotEmpty() && searchQuery.isBlank()) {
                     Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .animateContentSize()
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
                             text = "Recently Played",
@@ -180,35 +248,40 @@ fun VideoLibraryScreen(
                             }
                         }
 
+                        Spacer(modifier = Modifier.height(8.dp))
                         HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
                     }
                 }
-            }
 
-            if (filteredVideos.isEmpty()) {
-                item {
+                // All Videos Section
+                if (processedVideos.isEmpty()) {
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
+                            .fillMaxSize()
+                            .weight(1f),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text("No ${selectedFilter.name.lowercase()} videos found")
-                    }
-                }
-            } else {
-                items(filteredVideos, key = { it.id }) { video ->
-                    if (viewMode == ViewMode.LIST) {
-                        VideoListItem(
-                            video = video,
-                            isPlaying = video.id == currentVideoId,
-                            onClick = { onVideoClick(video) }
+                        Text(
+                            if (searchQuery.isNotEmpty()) {
+                                "No results found for \"$searchQuery\""
+                            } else {
+                                "No ${selectedFilter.name.lowercase()} videos found"
+                            }
                         )
-                    } else {
-                        VideoGridItem(
-                            video = video,
-                            isPlaying = video.id == currentVideoId,
-                            onClick = { onVideoClick(video) }
+                    }
+                } else {
+                    when (viewMode) {
+                        ViewMode.LIST -> VideoListView(
+                            videoItems = processedVideos,
+                            currentVideoId = currentVideoId,
+                            onVideoClick = onVideoClick,
+                            modifier = Modifier.weight(1f)
+                        )
+                        ViewMode.GRID -> VideoGridView(
+                            videoItems = processedVideos,
+                            currentVideoId = currentVideoId,
+                            onVideoClick = onVideoClick,
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
@@ -216,7 +289,6 @@ fun VideoLibraryScreen(
         }
     }
 }
-
 
 @Composable
 fun VideoFilterTabs(

@@ -196,17 +196,28 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private suspend fun restorePlaybackSession(state: PlaybackState) {
+        // Wait a bit for media controller to be ready
+        kotlinx.coroutines.delay(500)
+
         if (state.isAudioMode) {
             _audioItems.value.find { it.id == state.mediaId }?.let { audio ->
                 playAudio(audio, false)
-                player.seekTo(state.position)
-                player.playWhenReady = state.isPlaying
+                // Wait for player to be ready
+                kotlinx.coroutines.delay(300)
+                if (state.position > 0) {
+                    player.seekTo(state.position)
+                }
+                player.playWhenReady = false // Don't auto-play on restore
             }
         } else {
             _videoItems.value.find { it.id == state.mediaId }?.let { video ->
                 playVideo(video, false)
-                player.seekTo(state.position)
-                player.playWhenReady = state.isPlaying
+                // Wait for player to be ready
+                kotlinx.coroutines.delay(300)
+                if (state.position > 0) {
+                    player.seekTo(state.position)
+                }
+                player.playWhenReady = false // Don't auto-play on restore
             }
         }
 
