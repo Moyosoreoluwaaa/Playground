@@ -64,6 +64,21 @@
             </intent-filter>
         </service>
 
+        <!-- Widget Receiver -->
+        <receiver
+            android:name=".loose.PlaybackWidgetReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="com.playground.loose.widget.PLAY_PAUSE" />
+                <action android:name="com.playground.loose.widget.NEXT" />
+                <action android:name="com.playground.loose.widget.PREVIOUS" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/playback_widget_provider" />
+        </receiver>
+
     </application>
 
 </manifest>

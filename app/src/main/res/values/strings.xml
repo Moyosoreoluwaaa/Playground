@@ -10,4 +10,5 @@
     <string name="grant_permission">Grant Permission</string>
     <string name="no_audio_found">No audio files found</string>
     <string name="no_video_found">No video files found</string>
+    <string name="widget_description">Control your music playback from the home screen</string>
 </resources>
