@@ -1,8 +1,15 @@
-
 package com.playground.loose
 
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -10,17 +17,60 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.ViewList
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import java.util.Locale
+
+private fun formatDuration(ms: Long): String {
+    if (ms <= 0) return "00:00"
+
+    val totalSeconds = ms / 1000
+
+    // Check if the total duration is an hour or more (3600 seconds)
+    val hasHours = totalSeconds >= 3600
+
+    val hours = totalSeconds / 3600
+    val minutes = (totalSeconds % 3600) / 60
+    val seconds = totalSeconds % 60
+
+    return if (hasHours) {
+        // Format as H:MM:SS using Locale.US for consistent output
+        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        // Format as MM:SS using Locale.US for consistent output
+        String.format(Locale.US, "%02d:%02d", minutes, seconds)
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -42,7 +92,7 @@ fun AudioLibraryScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
 
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+//    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     val filteredAudio = remember(audioItems, searchQuery) {
         if (searchQuery.isBlank()) audioItems else
@@ -54,9 +104,9 @@ fun AudioLibraryScreen(
     }
 
     Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+//        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            MediumTopAppBar(
+            TopAppBar(
                 title = {
                     if (isSearchActive) {
                         TextField(
@@ -69,7 +119,7 @@ fun AudioLibraryScreen(
                                     isSearchActive = false
                                     searchQuery = ""
                                 }) {
-                                    Icon(Icons.Filled.ArrowBack, null)
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null)
                                 }
                             },
                             trailingIcon = {
@@ -94,12 +144,12 @@ fun AudioLibraryScreen(
                             onViewModeChange(if (viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST)
                         }) {
                             Icon(
-                                if (viewMode == ViewMode.LIST) Icons.Filled.GridView else Icons.Filled.ViewList,
+                                if (viewMode == ViewMode.LIST) Icons.Filled.GridView else Icons.AutoMirrored.Filled.ViewList,
                                 "Toggle view"
                             )
                         }
                         IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.Filled.Sort, "Sort")
+                            Icon(Icons.AutoMirrored.Filled.Sort, "Sort")
                         }
                         DropdownMenu(
                             expanded = showSortMenu,
@@ -107,7 +157,11 @@ fun AudioLibraryScreen(
                         ) {
                             SortOption.entries.forEach { option ->
                                 DropdownMenuItem(
-                                    text = { Text(option.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                                    text = {
+                                        Text(
+                                            option.name.lowercase()
+                                                .replaceFirstChar { it.uppercase() })
+                                    },
                                     onClick = {
                                         onSortChange(option)
                                         showSortMenu = false
@@ -117,7 +171,7 @@ fun AudioLibraryScreen(
                         }
                     }
                 },
-                scrollBehavior = scrollBehavior
+//                scrollBehavior = scrollBehavior
             )
         },
         bottomBar = {
@@ -136,13 +190,26 @@ fun AudioLibraryScreen(
         }
     ) { padding ->
         if (filteredAudio.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(padding), Alignment.Center) {
+            Box(Modifier
+                .fillMaxSize()
+                .padding(padding), Alignment.Center) {
                 Text(if (searchQuery.isEmpty()) "No audio files found" else "No results for \"$searchQuery\"")
             }
         } else {
             when (viewMode) {
-                ViewMode.LIST -> AudioListView(filteredAudio, currentAudioId, onAudioClick, Modifier.padding(padding))
-                ViewMode.GRID -> AudioGridView(filteredAudio, currentAudioId, onAudioClick, Modifier.padding(padding))
+                ViewMode.LIST -> AudioListView(
+                    filteredAudio,
+                    currentAudioId,
+                    onAudioClick,
+                    Modifier.padding(padding)
+                )
+
+                ViewMode.GRID -> AudioGridView(
+                    filteredAudio,
+                    currentAudioId,
+                    onAudioClick,
+                    Modifier.padding(padding)
+                )
             }
         }
     }
@@ -209,7 +276,7 @@ fun AudioListItem(
                 model = audio.albumArtUri,
                 contentDescription = null,
                 modifier = Modifier
-                    .size(56.dp)
+                    .size(85.dp)
                     .clip(RoundedCornerShape(8.dp)),
                 contentScale = ContentScale.Crop
             )

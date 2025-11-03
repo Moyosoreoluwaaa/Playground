@@ -473,4 +473,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         controllerFuture?.let { MediaController.releaseFuture(it) }
         super.onCleared()
     }
+
+    fun setPlaybackSpeed(speed: Float) {
+        player.setPlaybackSpeed(speed)
+    }
 }

@@ -1,20 +1,37 @@
 package com.playground.loose
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
-import kotlin.random.Random
 
 @Composable
 fun AudioPlayerScreen(
@@ -30,203 +47,131 @@ fun AudioPlayerScreen(
     onSkipForward: () -> Unit,
     onSkipBackward: () -> Unit,
     onToggleRepeat: () -> Unit,
-    onSwitchToVideo: () -> Unit
+    onBack: () -> Unit,
+    onSetPlaybackSpeed: (Float) -> Unit
 ) {
+    val context = LocalContext.current
+
+    var bgColors by remember { mutableStateOf(listOf(Color(0xFF121212), Color(0xFF000000))) }
+    var showSpeedSheet by remember { mutableStateOf(false) }
+    var playbackSpeed by remember { mutableFloatStateOf(1f) }
+
+    // Extract palette in LaunchedEffect (use extractPalette util if available)
+    LaunchedEffect(currentAudio?.albumArtUri) {
+        currentAudio?.albumArtUri?.let { uri ->
+            // extractPalette should return androidx.palette.graphics.Palette or null
+            val p = try {
+                extractPalette(context, uri.toString())
+            } catch (t: Throwable) {
+                null
+            }
+            val swatch = p?.dominantSwatch
+            val primary = swatch?.rgb?.let { Color(it) } ?: Color(0xFF121212)
+            val secondary = primary.copy(alpha = 0.88f)
+            bgColors = listOf(primary, secondary)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.SpaceBetween
+            .background(Brush.verticalGradient(bgColors))
+            .padding(20.dp)
+            .padding(vertical = 12.dp)
     ) {
-        // Top controls
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            IconButton(onClick = onToggleRepeat) {
-                Icon(
-                    imageVector = when (repeatMode) {
-                        RepeatMode.OFF -> Icons.Filled.Repeat
-                        RepeatMode.ONE -> Icons.Filled.RepeatOne
-                        RepeatMode.ALL -> Icons.Filled.Repeat
-                    },
-                    contentDescription = "Repeat",
-                    tint = if (repeatMode != RepeatMode.OFF) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                    }
-                )
-            }
-            
-            IconButton(onClick = onSwitchToVideo) {
-                Icon(
-                    imageVector = Icons.Filled.Headphones,
-                    contentDescription = "Switch to video mode"
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // Album Art
-        AlbumArtwork(
-            albumArtUri = currentAudio?.albumArtUri,
-            modifier = Modifier
-                .size(300.dp)
-                .clip(RoundedCornerShape(16.dp))
-        )
-
-        Spacer(modifier = Modifier.height(32.dp))
-
-        // Song info
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                text = currentAudio?.title ?: "No track selected",
-                style = MaterialTheme.typography.headlineMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            
-            Text(
-                text = currentAudio?.artist ?: "",
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            
-            if (currentAudio?.album != null) {
-                Text(
-                    text = currentAudio.album,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Seek bar
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Slider(
-                value = if (duration > 0) currentPosition.toFloat() else 0f,
-                onValueChange = { onSeek(it.toLong()) },
-                valueRange = 0f..duration.toFloat().coerceAtLeast(1f),
-                modifier = Modifier.fillMaxWidth()
-            )
-            
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = formatDuration(currentPosition),
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    text = formatDuration(duration),
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Playback controls
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+            horizontalArrangement = Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(onClick = onPrevious) {
-                Icon(
-                    imageVector = Icons.Filled.SkipPrevious,
-                    contentDescription = "Previous",
-                    modifier = Modifier.size(40.dp)
+            ActionIconButton(
+                onClick = onBack,
+                icon = Icons.AutoMirrored.Filled.ArrowBack,
+                tint = Color.White,
+                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                contentDescription = "Back"
+            )
+        }
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            // Album Art centered top
+            AlbumArtwork(
+                albumArtUri = currentAudio?.albumArtUri,
+                modifier = Modifier
+                    .size(300.dp)
+                    .clip(CircleShape)
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Title / Artist / Album below artwork (moved here per request)
+            Text(
+                text = currentAudio?.title ?: "No track",
+                color = Color.White,
+                style = MaterialTheme.typography.titleLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            currentAudio?.artist?.let {
+                Text(
+                    text = it,
+                    color = Color.White.copy(alpha = 0.9f),
+                    style = MaterialTheme.typography.bodyLarge
                 )
             }
-            
-            IconButton(onClick = onSkipBackward) {
-                Icon(
-                    imageVector = Icons.Filled.Replay10,
-                    contentDescription = "Rewind 10s",
-                    modifier = Modifier.size(32.dp)
+            currentAudio?.album?.let {
+                Text(
+                    text = it,
+                    color = Color.White.copy(alpha = 0.7f),
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
-            
-            FloatingActionButton(
-                onClick = onPlayPause,
-                modifier = Modifier.size(72.dp)
-            ) {
-                Icon(
-                    imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                    contentDescription = if (isPlaying) "Pause" else "Play",
-                    modifier = Modifier.size(40.dp)
-                )
-            }
-            
-            IconButton(onClick = onSkipForward) {
-                Icon(
-                    imageVector = Icons.Filled.Forward10,
-                    contentDescription = "Forward 10s",
-                    modifier = Modifier.size(32.dp)
-                )
-            }
-            
-            IconButton(onClick = onNext) {
-                Icon(
-                    imageVector = Icons.Filled.SkipNext,
-                    contentDescription = "Next",
-                    modifier = Modifier.size(40.dp)
-                )
+
+            Spacer(modifier = Modifier.height(40.dp))
+
+            // Action row above seek (repeat, speed, headphones) - no rotate
+            ActionRowAboveSeek(
+                repeatMode = repeatMode,
+                onToggleRepeat = onToggleRepeat,
+                onShowSpeed = { showSpeedSheet = true },
+                onRotate = { /* no-op for audio */ },
+                onToggleAudioOnly = { /* noop */ },
+                isAudioOnlyActive = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // Seek
+            PlayerSeekBar(
+                currentPosition = currentPosition,
+                duration = duration,
+                onSeek = onSeek,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // Center playback controls
+            CenterPlaybackControls(
+                isPlaying = isPlaying,
+                onPlayPause = onPlayPause,
+                onNext = onNext,
+                onPrevious = onPrevious
+            )
+        }
+
+        if (showSpeedSheet) {
+            SpeedBottomSheet(
+                initialSpeed = playbackSpeed,
+                onDismiss = { showSpeedSheet = false }) { speed ->
+                playbackSpeed = speed
+                onSetPlaybackSpeed(speed)
             }
         }
     }
-}
-
-@Composable
-fun AlbumArtwork(
-    albumArtUri: android.net.Uri?,
-    modifier: Modifier = Modifier
-) {
-    // Six fallback images
-    val fallbackImages = listOf(
-        "https://images.unsplash.com/photo-1514320291840-2e0a9bf2a9ae",
-        "https://images.unsplash.com/photo-1470225620780-dba8ba36b745",
-        "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f",
-        "https://images.unsplash.com/photo-1511379938547-c1f69419868d",
-        "https://images.unsplash.com/photo-1507838153414-b4b713384a76",
-        "https://images.unsplash.com/photo-1459749411175-04bf5292ceea"
-    )
-    
-    val randomFallback = remember {
-        fallbackImages[Random.nextInt(fallbackImages.size)]
-    }
-
-    AsyncImage(
-        model = albumArtUri ?: randomFallback,
-        contentDescription = "Album Art",
-        modifier = modifier,
-        contentScale = ContentScale.Crop
-    )
-}
-
-fun formatDuration(millis: Long): String {
-    val seconds = (millis / 1000) % 60
-    val minutes = (millis / (1000 * 60)) % 60
-    val hours = millis / (1000 * 60 * 60)
-    
-    return if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format("%d:%02d", minutes, seconds)
-    }
+    // Back handler
+    BackHandler { onBack() }
 }

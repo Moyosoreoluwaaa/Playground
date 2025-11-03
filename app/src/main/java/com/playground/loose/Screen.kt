@@ -5,8 +5,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
@@ -15,7 +21,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.loose.mediaplayer.ui.screen.*
+import com.loose.mediaplayer.ui.screen.VideoLibraryScreen
 import com.loose.mediaplayer.ui.viewmodel.PlayerViewModel
 import com.playground.loose.AudioLibraryScreen
 import com.playground.loose.AudioPlayerScreen
@@ -164,11 +170,8 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
                     onSkipForward = viewModel::skipForward,
                     onSkipBackward = viewModel::skipBackward,
                     onToggleRepeat = viewModel::toggleRepeatMode,
-                    onSwitchToVideo = {
-                        // This would switch current audio to video-only mode
-                        // For now, just navigate back
-                        navController.popBackStack()
-                    }
+                    onSetPlaybackSpeed = viewModel::setPlaybackSpeed, // ✅ FIX
+                    onBack = { navController.popBackStack() }
                 )
             }
 
@@ -185,11 +188,9 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
                     onNext = viewModel::playNext,
                     onPrevious = viewModel::playPrevious,
                     onSeek = viewModel::seekTo,
-                    onSkipForward = viewModel::skipForward,
-                    onSkipBackward = viewModel::skipBackward,
                     onToggleRepeat = viewModel::toggleRepeatMode,
+                    onSetPlaybackSpeed = viewModel::setPlaybackSpeed, // ✅ FIX
                     onSwitchToAudio = {
-                        // Switch to audio-only mode
                         navController.navigate(Screen.AudioPlayer.route) {
                             popUpTo(Screen.VideoPlayer.route) { inclusive = true }
                         }

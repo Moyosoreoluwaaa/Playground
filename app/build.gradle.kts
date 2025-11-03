@@ -90,6 +90,7 @@ dependencies {
     //------------------------------------------
     implementation(libs.androidx.navigation.compose)
 
+    implementation("androidx.palette:palette-ktx:1.0.0")
     // Image Loading
     //------------------------------------------
     implementation(libs.coil.compose)
