@@ -28,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
@@ -44,6 +45,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -62,7 +65,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.loose.mediaplayer.Screen
 import com.playground.loose.MiniPlayer
 import com.playground.loose.SortOption
 import com.playground.loose.VideoItem
@@ -111,12 +117,14 @@ fun VideoLibraryScreen(
     isPlaying: Boolean = false,
     onPlayPause: () -> Unit = {},
     onNext: () -> Unit = {},
-    recentlyPlayedIds: List<Long> = emptyList()
+    recentlyPlayedIds: List<Long> = emptyList(),
+    navController: NavController
 ) {
     var showSortMenu by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableStateOf(VideoFilter.ALL) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
+
     // Filter + Search logic
     val processedVideos = remember(videoItems, selectedFilter, searchQuery) {
         val filtered = when (selectedFilter) {
@@ -125,10 +133,7 @@ fun VideoLibraryScreen(
             VideoFilter.FULL -> videoItems.filter { it.height <= it.width || it.duration >= 240000 }
         }
         if (searchQuery.isBlank()) filtered else filtered.filter {
-            it.title.contains(
-                searchQuery,
-                true
-            )
+            it.title.contains(searchQuery, true)
         }
     }
 
@@ -152,10 +157,7 @@ fun VideoLibraryScreen(
                                         isSearchActive = false
                                         searchQuery = ""
                                     }) {
-                                        Icon(
-                                            Icons.AutoMirrored.Filled.ArrowBack,
-                                            contentDescription = "Back"
-                                        )
+                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                                     }
                                 },
                                 trailingIcon = {
@@ -168,7 +170,7 @@ fun VideoLibraryScreen(
                                 modifier = Modifier.fillMaxWidth()
                             )
                         } else {
-                            Text("Video Library")
+                            Text("Video Library", fontSize = 30.sp)
                         }
                     },
                     actions = {
@@ -177,7 +179,9 @@ fun VideoLibraryScreen(
                                 Icon(Icons.Filled.Search, contentDescription = "Search")
                             }
                             IconButton(onClick = {
-                                onViewModeChange(if (viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST)
+                                onViewModeChange(
+                                    if (viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST
+                                )
                             }) {
                                 Icon(
                                     if (viewMode == ViewMode.LIST) Icons.Filled.GridView else Icons.AutoMirrored.Filled.ViewList,
@@ -206,10 +210,9 @@ fun VideoLibraryScreen(
                                 }
                             }
                         }
-                    },
+                    }
                 )
 
-                // ---- Filter Tabs below the title, collapsible with it ----
                 if (!isSearchActive) {
                     VideoFilterTabs(
                         selectedFilter = selectedFilter,
@@ -221,17 +224,46 @@ fun VideoLibraryScreen(
             }
         },
         bottomBar = {
-            if (currentVideoId != null) {
-                MiniPlayer(
-                    currentAudio = null,
-                    currentVideo = currentVideo,
-                    isPlaying = isPlaying,
-                    isAudioMode = false,
-                    onPlayPause = onPlayPause,
-                    onShowQueue = {},
-                    onNext = onNext,
-                    onClick = onNavigateToPlayer
-                )
+            Column {
+                // Mini Player
+                if (currentVideoId != null) {
+                    MiniPlayer(
+                        currentAudio = null,
+                        currentVideo = currentVideo,
+                        isPlaying = isPlaying,
+                        isAudioMode = false,
+                        onPlayPause = onPlayPause,
+                        onShowQueue = {},
+                        onNext = onNext,
+                        onClick = onNavigateToPlayer
+                    )
+                }
+
+                // Bottom Navigation Bar
+                NavigationBar {
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Filled.MusicNote, null) },
+                        label = { Text("Audio") },
+                        selected = navController.currentDestination?.route == Screen.AudioLibrary.route,
+                        onClick = {
+                            navController.navigate(Screen.AudioLibrary.route) {
+                                popUpTo(Screen.AudioLibrary.route)
+                                launchSingleTop = true
+                            }
+                        }
+                    )
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Filled.VideoLibrary, null) },
+                        label = { Text("Video") },
+                        selected = navController.currentDestination?.route == Screen.VideoLibrary.route,
+                        onClick = {
+                            navController.navigate(Screen.VideoLibrary.route) {
+                                popUpTo(Screen.VideoLibrary.route)
+                                launchSingleTop = true
+                            }
+                        }
+                    )
+                }
             }
         }
     ) { padding ->
@@ -274,7 +306,10 @@ fun VideoLibraryScreen(
                             .height(200.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(if (searchQuery.isEmpty()) "No videos found" else "No results for \"$searchQuery\"")
+                        Text(
+                            if (searchQuery.isEmpty()) "No videos found"
+                            else "No results for \"$searchQuery\""
+                        )
                     }
                 }
             } else {
@@ -288,6 +323,7 @@ fun VideoLibraryScreen(
         }
     }
 }
+
 
 
 @Composable

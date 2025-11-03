@@ -22,8 +22,10 @@ import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.ViewList
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -33,6 +35,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
@@ -48,7 +52,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.loose.mediaplayer.Screen
 import java.util.Locale
 
 private fun formatDuration(ms: Long): String {
@@ -86,13 +93,12 @@ fun AudioLibraryScreen(
     currentAudio: AudioItem? = null,
     isPlaying: Boolean = false,
     onPlayPause: () -> Unit = {},
-    onNext: () -> Unit = {}
+    onNext: () -> Unit = {},
+    navController: NavController
 ) {
     var showSortMenu by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
-
-//    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
     val filteredAudio = remember(audioItems, searchQuery) {
         if (searchQuery.isBlank()) audioItems else
@@ -104,7 +110,6 @@ fun AudioLibraryScreen(
     }
 
     Scaffold(
-//        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
             TopAppBar(
                 title = {
@@ -132,7 +137,7 @@ fun AudioLibraryScreen(
                             modifier = Modifier.fillMaxWidth()
                         )
                     } else {
-                        Text("Music Library")
+                        Text("Music Library", fontSize = 30.sp)
                     }
                 },
                 actions = {
@@ -141,7 +146,9 @@ fun AudioLibraryScreen(
                             Icon(Icons.Filled.Search, "Search")
                         }
                         IconButton(onClick = {
-                            onViewModeChange(if (viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST)
+                            onViewModeChange(
+                                if (viewMode == ViewMode.LIST) ViewMode.GRID else ViewMode.LIST
+                            )
                         }) {
                             Icon(
                                 if (viewMode == ViewMode.LIST) Icons.Filled.GridView else Icons.AutoMirrored.Filled.ViewList,
@@ -170,30 +177,64 @@ fun AudioLibraryScreen(
                             }
                         }
                     }
-                },
-//                scrollBehavior = scrollBehavior
+                }
             )
         },
         bottomBar = {
-            if (currentAudioId != null) {
-                MiniPlayer(
-                    currentAudio = currentAudio,
-                    currentVideo = null,
-                    isPlaying = isPlaying,
-                    isAudioMode = true,
-                    onPlayPause = onPlayPause,
-                    onShowQueue = {},
-                    onNext = onNext,
-                    onClick = onNavigateToPlayer
-                )
+            Column {
+                // Mini Player
+                if (currentAudioId != null) {
+                    MiniPlayer(
+                        currentAudio = currentAudio,
+                        currentVideo = null,
+                        isPlaying = isPlaying,
+                        isAudioMode = true,
+                        onPlayPause = onPlayPause,
+                        onShowQueue = {},
+                        onNext = onNext,
+                        onClick = onNavigateToPlayer
+                    )
+                }
+
+                // Bottom Navigation Bar
+                NavigationBar {
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Filled.MusicNote, null) },
+                        label = { Text("Audio") },
+                        selected = navController.currentDestination?.route == Screen.AudioLibrary.route,
+                        onClick = {
+                            navController.navigate(Screen.AudioLibrary.route) {
+                                popUpTo(Screen.AudioLibrary.route)
+                                launchSingleTop = true
+                            }
+                        }
+                    )
+                    NavigationBarItem(
+                        icon = { Icon(Icons.Filled.VideoLibrary, null) },
+                        label = { Text("Video") },
+                        selected = navController.currentDestination?.route == Screen.VideoLibrary.route,
+                        onClick = {
+                            navController.navigate(Screen.VideoLibrary.route) {
+                                popUpTo(Screen.VideoLibrary.route)
+                                launchSingleTop = true
+                            }
+                        }
+                    )
+                }
             }
         }
     ) { padding ->
         if (filteredAudio.isEmpty()) {
-            Box(Modifier
-                .fillMaxSize()
-                .padding(padding), Alignment.Center) {
-                Text(if (searchQuery.isEmpty()) "No audio files found" else "No results for \"$searchQuery\"")
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                Alignment.Center
+            ) {
+                Text(
+                    if (searchQuery.isEmpty()) "No audio files found"
+                    else "No results for \"$searchQuery\""
+                )
             }
         } else {
             when (viewMode) {
@@ -214,6 +255,7 @@ fun AudioLibraryScreen(
         }
     }
 }
+
 
 
 @Composable

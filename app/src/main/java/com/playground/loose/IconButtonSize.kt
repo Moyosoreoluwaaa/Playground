@@ -1,5 +1,7 @@
 package com.playground.loose
 
+import android.R.attr.contentDescription
+import android.R.attr.tint
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -68,7 +70,6 @@ private val NextPrevInnerSize = 36.dp
 fun NextPrevIconButton(
     onClick: () -> Unit,
     icon: ImageVector,
-    tint: Color = Color.White,
     backgroundColor: Color = MaterialTheme.colorScheme.surfaceVariant,
     contentDescription: String? = null,
     size: Dp = NextPrevIconButtonSize
@@ -86,7 +87,6 @@ fun NextPrevIconButton(
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                tint = tint,
                 modifier = Modifier.size(NextPrevInnerSize)
             )
         }
@@ -97,7 +97,6 @@ fun NextPrevIconButton(
 fun ActionIconButton(
     onClick: () -> Unit,
     icon: ImageVector,
-    tint: Color = Color.White,
     backgroundColor: Color = MaterialTheme.colorScheme.surfaceVariant,
     contentDescription: String? = null,
     size: Dp = IconButtonSize
@@ -115,7 +114,6 @@ fun ActionIconButton(
             Icon(
                 imageVector = icon,
                 contentDescription = contentDescription,
-                tint = tint,
                 modifier = Modifier.size(IconInnerSize)
             )
         }
@@ -147,8 +145,7 @@ fun ActionRowAboveSeek(
                 RepeatMode.ONE -> Icons.Filled.RepeatOne
                 RepeatMode.ALL -> Icons.Filled.Repeat
             },
-            tint = if (repeatMode == RepeatMode.OFF) MaterialTheme.colorScheme.onSurface else activeColor,
-            backgroundColor = actionBgColor,
+            backgroundColor =  if (repeatMode == RepeatMode.OFF) MaterialTheme.colorScheme.onSurface else activeColor,
             contentDescription = "Repeat"
         )
 
@@ -156,19 +153,18 @@ fun ActionRowAboveSeek(
             onClick = onShowSpeed,
             icon = Icons.Filled.Speed,
             backgroundColor = actionBgColor,
-            contentDescription = "Speed"
+            contentDescription = "Speed",
         )
         ActionIconButton(
             onClick = onRotate,
             icon = Icons.Filled.ScreenRotation,
             backgroundColor = actionBgColor,
-            contentDescription = "Rotate"
+            contentDescription = "Rotate",
         )
         ActionIconButton(
             onClick = onToggleAudioOnly,
             icon = Icons.Filled.Headphones,
             backgroundColor = if (isAudioOnlyActive) activeColor else actionBgColor,
-            tint = if (isAudioOnlyActive) MaterialTheme.colorScheme.onPrimary else Color.White,
             contentDescription = "Audio only"
         )
     }

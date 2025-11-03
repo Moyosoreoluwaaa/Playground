@@ -39,6 +39,7 @@ sealed class Screen(val route: String, val title: String) {
 fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
     val navController = rememberNavController()
 
+    // Collect playback and library states
     val audioItems by viewModel.audioItems.collectAsState()
     val videoItems by viewModel.videoItems.collectAsState()
     val currentAudio by viewModel.currentAudioItem.collectAsState()
@@ -47,157 +48,107 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
     val currentPosition by viewModel.currentPosition.collectAsState()
     val duration by viewModel.duration.collectAsState()
     val repeatMode by viewModel.repeatMode.collectAsState()
-    val isAudioMode by viewModel.isAudioMode.collectAsState()
     val audioViewMode by viewModel.audioViewMode.collectAsState()
     val videoViewMode by viewModel.videoViewMode.collectAsState()
     val audioSortOption by viewModel.audioSortOption.collectAsState()
     val videoSortOption by viewModel.videoSortOption.collectAsState()
     val recentlyPlayedVideoIds by viewModel.recentlyPlayedVideoIds.collectAsState()
 
-    val navBackStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = navBackStackEntry?.destination?.route
-
-    // Show bottom bar only on library screens
-    val showBottomBar = currentRoute in listOf(
-        Screen.AudioLibrary.route,
-        Screen.VideoLibrary.route
-    )
-
-    Scaffold(
-        bottomBar = {
-            if (showBottomBar) {
-                NavigationBar {
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Filled.MusicNote, contentDescription = null) },
-                        label = { Text(Screen.AudioLibrary.title) },
-                        selected = currentRoute == Screen.AudioLibrary.route,
-                        onClick = {
-                            navController.navigate(Screen.AudioLibrary.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    )
-                    NavigationBarItem(
-                        icon = { Icon(Icons.Filled.VideoLibrary, contentDescription = null) },
-                        label = { Text(Screen.VideoLibrary.title) },
-                        selected = currentRoute == Screen.VideoLibrary.route,
-                        onClick = {
-                            navController.navigate(Screen.VideoLibrary.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        }
-                    )
-                }
-            }
+    NavHost(
+        navController = navController,
+        startDestination = Screen.AudioLibrary.route
+    ) {
+        // 🎵 Audio Library
+        composable(Screen.AudioLibrary.route) {
+            AudioLibraryScreen(
+                audioItems = audioItems,
+                currentAudioId = currentAudio?.id,
+                viewMode = audioViewMode,
+                sortOption = audioSortOption,
+                onAudioClick = { audio ->
+                    viewModel.playAudio(audio, autoPlay = true)
+                    navController.navigate(Screen.AudioPlayer.route)
+                },
+                onViewModeChange = viewModel::setAudioViewMode,
+                onSortChange = viewModel::setAudioSort,
+                onNavigateToPlayer = {
+                    if (currentAudio != null) navController.navigate(Screen.AudioPlayer.route)
+                },
+                currentAudio = currentAudio,
+                isPlaying = isPlaying,
+                onPlayPause = viewModel::playPause,
+                onNext = viewModel::playNext,
+                navController = navController // 👈 Add this
+            )
         }
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = Screen.AudioLibrary.route,
-            modifier = Modifier.padding(innerPadding)
-        ) {
-            // Audio Library
-            composable(Screen.AudioLibrary.route) {
-                AudioLibraryScreen(
-                    audioItems = audioItems,
-                    currentAudioId = currentAudio?.id,
-                    viewMode = audioViewMode,
-                    sortOption = audioSortOption,
-                    onAudioClick = { audio ->
-                        viewModel.playAudio(audio, autoPlay = true)
-                        navController.navigate(Screen.AudioPlayer.route)
-                    },
-                    onViewModeChange = viewModel::setAudioViewMode,
-                    onSortChange = viewModel::setAudioSort,
-                    onNavigateToPlayer = {
-                        if (currentAudio != null) {
-                            navController.navigate(Screen.AudioPlayer.route)
-                        }
-                    },
-                    currentAudio = currentAudio,
-                    isPlaying = isPlaying,
-                    onPlayPause = viewModel::playPause,
-                    onNext = viewModel::playNext
-                )
-            }
 
-            // Video Library
-            composable(Screen.VideoLibrary.route) {
-                VideoLibraryScreen(
-                    videoItems = videoItems,
-                    currentVideoId = currentVideo?.id,
-                    viewMode = videoViewMode,
-                    sortOption = videoSortOption,
-                    onVideoClick = { video ->
-                        viewModel.playVideo(video, autoPlay = true)
-                        navController.navigate(Screen.VideoPlayer.route)
-                    },
-                    onViewModeChange = viewModel::setVideoViewMode,
-                    onSortChange = viewModel::setVideoSort,
-                    onNavigateToPlayer = {
-                        if (currentVideo != null) {
-                            navController.navigate(Screen.VideoPlayer.route)
-                        }
-                    },
-                    currentVideo = currentVideo,
-                    isPlaying = isPlaying,
-                    onPlayPause = viewModel::playPause,
-                    onNext = viewModel::playNext,
-                    recentlyPlayedIds = recentlyPlayedVideoIds
-                )
-            }
+        // 🎬 Video Library
+        composable(Screen.VideoLibrary.route) {
+            VideoLibraryScreen(
+                videoItems = videoItems,
+                currentVideoId = currentVideo?.id,
+                viewMode = videoViewMode,
+                sortOption = videoSortOption,
+                onVideoClick = { video ->
+                    viewModel.playVideo(video, autoPlay = true)
+                    navController.navigate(Screen.VideoPlayer.route)
+                },
+                onViewModeChange = viewModel::setVideoViewMode,
+                onSortChange = viewModel::setVideoSort,
+                onNavigateToPlayer = {
+                    if (currentVideo != null) navController.navigate(Screen.VideoPlayer.route)
+                },
+                currentVideo = currentVideo,
+                isPlaying = isPlaying,
+                onPlayPause = viewModel::playPause,
+                onNext = viewModel::playNext,
+                recentlyPlayedIds = recentlyPlayedVideoIds,
+                navController = navController // 👈 Add this
+            )
+        }
 
-            // Audio Player
-            composable(Screen.AudioPlayer.route) {
-                AudioPlayerScreen(
-                    currentAudio = currentAudio,
-                    isPlaying = isPlaying,
-                    currentPosition = currentPosition,
-                    duration = duration,
-                    repeatMode = repeatMode,
-                    onPlayPause = viewModel::playPause,
-                    onNext = viewModel::playNext,
-                    onPrevious = viewModel::playPrevious,
-                    onSeek = viewModel::seekTo,
-                    onSkipForward = viewModel::skipForward,
-                    onSkipBackward = viewModel::skipBackward,
-                    onToggleRepeat = viewModel::toggleRepeatMode,
-                    onSetPlaybackSpeed = viewModel::setPlaybackSpeed, // ✅ FIX
-                    onBack = { navController.popBackStack() }
-                )
-            }
+        // 🎧 Audio Player
+        composable(Screen.AudioPlayer.route) {
+            AudioPlayerScreen(
+                currentAudio = currentAudio,
+                isPlaying = isPlaying,
+                currentPosition = currentPosition,
+                duration = duration,
+                repeatMode = repeatMode,
+                onPlayPause = viewModel::playPause,
+                onNext = viewModel::playNext,
+                onPrevious = viewModel::playPrevious,
+                onSeek = viewModel::seekTo,
+                onSkipForward = viewModel::skipForward,
+                onSkipBackward = viewModel::skipBackward,
+                onToggleRepeat = viewModel::toggleRepeatMode,
+                onSetPlaybackSpeed = viewModel::setPlaybackSpeed,
+                onBack = { navController.popBackStack() }
+            )
+        }
 
-            // Video Player
-            composable(Screen.VideoPlayer.route) {
-                VideoPlayerScreen(
-                    player = viewModel.player,
-                    currentVideo = currentVideo,
-                    isPlaying = isPlaying,
-                    currentPosition = currentPosition,
-                    duration = duration,
-                    repeatMode = repeatMode,
-                    onPlayPause = viewModel::playPause,
-                    onNext = viewModel::playNext,
-                    onPrevious = viewModel::playPrevious,
-                    onSeek = viewModel::seekTo,
-                    onToggleRepeat = viewModel::toggleRepeatMode,
-                    onSetPlaybackSpeed = viewModel::setPlaybackSpeed, // ✅ FIX
-                    onSwitchToAudio = {
-                        navController.navigate(Screen.AudioPlayer.route) {
-                            popUpTo(Screen.VideoPlayer.route) { inclusive = true }
-                        }
-                    },
-                    onBack = { navController.popBackStack() }
-                )
-            }
+        // 📺 Video Player
+        composable(Screen.VideoPlayer.route) {
+            VideoPlayerScreen(
+                player = viewModel.player,
+                currentVideo = currentVideo,
+                isPlaying = isPlaying,
+                currentPosition = currentPosition,
+                duration = duration,
+                repeatMode = repeatMode,
+                onPlayPause = viewModel::playPause,
+                onNext = viewModel::playNext,
+                onPrevious = viewModel::playPrevious,
+                onSeek = viewModel::seekTo,
+                onToggleRepeat = viewModel::toggleRepeatMode,
+                onSetPlaybackSpeed = viewModel::setPlaybackSpeed,
+                onSwitchToAudio = {
+                    navController.navigate(Screen.AudioPlayer.route) {
+                        popUpTo(Screen.VideoPlayer.route) { inclusive = true }
+                    }
+                },
+                onBack = { navController.popBackStack() }
+            )
         }
     }
 }

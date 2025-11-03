@@ -16,6 +16,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -72,106 +73,111 @@ fun AudioPlayerScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Brush.verticalGradient(bgColors))
-            .padding(20.dp)
-            .padding(vertical = 12.dp)
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Start,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            ActionIconButton(
-                onClick = onBack,
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                tint = Color.White,
-                backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentDescription = "Back"
-            )
-        }
+    Scaffold { paddingValues ->
+
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Brush.verticalGradient(bgColors))
+                .padding(paddingValues)
+                .padding(20.dp)
+//                .padding(vertical = 12.dp)
         ) {
-            // Album Art centered top
-            AlbumArtwork(
-                albumArtUri = currentAudio?.albumArtUri,
-                modifier = Modifier
-                    .size(300.dp)
-                    .clip(CircleShape)
-            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ActionIconButton(
+                    onClick = onBack,
+                    icon = Icons.AutoMirrored.Filled.ArrowBack,
+                    backgroundColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentDescription = "Back",
 
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Title / Artist / Album below artwork (moved here per request)
-            Text(
-                text = currentAudio?.title ?: "No track",
-                color = Color.White,
-                style = MaterialTheme.typography.titleLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            currentAudio?.artist?.let {
-                Text(
-                    text = it,
-                    color = Color.White.copy(alpha = 0.9f),
-                    style = MaterialTheme.typography.bodyLarge
                 )
             }
-            currentAudio?.album?.let {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Album Art centered top
+                AlbumArtwork(
+                    albumArtUri = currentAudio?.albumArtUri,
+                    modifier = Modifier
+                        .size(300.dp)
+                        .clip(CircleShape)
+                )
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Title / Artist / Album below artwork (moved here per request)
                 Text(
-                    text = it,
-                    color = Color.White.copy(alpha = 0.7f),
-                    style = MaterialTheme.typography.bodyMedium
+                    text = currentAudio?.title ?: "No track",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                currentAudio?.artist?.let {
+                    Text(
+                        text = it,
+                        color = Color.White.copy(alpha = 0.9f),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+                }
+                currentAudio?.album?.let {
+                    Text(
+                        text = it,
+                        color = Color.White.copy(alpha = 0.7f),
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(40.dp))
+
+                // Action row above seek (repeat, speed, headphones) - no rotate
+                ActionRowAboveSeek(
+                    repeatMode = repeatMode,
+                    onToggleRepeat = onToggleRepeat,
+                    onShowSpeed = { showSpeedSheet = true },
+                    onRotate = { /* no-op for audio */ },
+                    onToggleAudioOnly = { /* noop */ },
+                    isAudioOnlyActive = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(18.dp))
+
+                // Seek
+                PlayerSeekBar(
+                    currentPosition = currentPosition,
+                    duration = duration,
+                    onSeek = onSeek,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Center playback controls
+                CenterPlaybackControls(
+                    isPlaying = isPlaying,
+                    onPlayPause = onPlayPause,
+                    onNext = onNext,
+                    onPrevious = onPrevious
                 )
             }
 
-            Spacer(modifier = Modifier.height(40.dp))
-
-            // Action row above seek (repeat, speed, headphones) - no rotate
-            ActionRowAboveSeek(
-                repeatMode = repeatMode,
-                onToggleRepeat = onToggleRepeat,
-                onShowSpeed = { showSpeedSheet = true },
-                onRotate = { /* no-op for audio */ },
-                onToggleAudioOnly = { /* noop */ },
-                isAudioOnlyActive = true,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(18.dp))
-
-            // Seek
-            PlayerSeekBar(
-                currentPosition = currentPosition,
-                duration = duration,
-                onSeek = onSeek,
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            // Center playback controls
-            CenterPlaybackControls(
-                isPlaying = isPlaying,
-                onPlayPause = onPlayPause,
-                onNext = onNext,
-                onPrevious = onPrevious
-            )
-        }
-
-        if (showSpeedSheet) {
-            SpeedBottomSheet(
-                initialSpeed = playbackSpeed,
-                onDismiss = { showSpeedSheet = false }) { speed ->
-                playbackSpeed = speed
-                onSetPlaybackSpeed(speed)
+            if (showSpeedSheet) {
+                SpeedBottomSheet(
+                    initialSpeed = playbackSpeed,
+                    onDismiss = { showSpeedSheet = false }) { speed ->
+                    playbackSpeed = speed
+                    onSetPlaybackSpeed(speed)
+                }
             }
         }
+
+        // Back handler
+        BackHandler { onBack() }
     }
-    // Back handler
-    BackHandler { onBack() }
 }
