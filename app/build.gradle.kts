@@ -80,6 +80,9 @@ dependencies {
     // DataStore for persistence
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
+    // Widget
+    implementation("androidx.glance:glance-appwidget:1.1.0")
+
     // Media3 (ExoPlayer)
     implementation(libs.androidx.media3.session)
     implementation("androidx.media3:media3-exoplayer:1.8.0")
