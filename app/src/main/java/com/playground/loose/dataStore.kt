@@ -1,6 +1,7 @@
 package com.playground.loose
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -9,14 +10,18 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.google.common.reflect.TypeToken
+import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlin.collections.emptyList
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "loose_preferences")
 
 class PreferencesManager(private val context: Context) {
 
+    private val gson: Gson = Gson()
     private object Keys {
         // Playback State (Global)
         val MEDIA_ID = longPreferencesKey("media_id")
@@ -41,6 +46,9 @@ class PreferencesManager(private val context: Context) {
         // Format: "mediaId:position,mediaId:position,..."
         val AUDIO_POSITIONS = stringPreferencesKey("audio_positions")
         val VIDEO_POSITIONS = stringPreferencesKey("video_positions")
+
+        // ... (Existing keys)
+        val AUDIO_PLAYLISTS = stringPreferencesKey("audio_playlists") // NEW KEY
     }
 
     /**
@@ -232,6 +240,41 @@ class PreferencesManager(private val context: Context) {
             prefs[Keys.POSITION] = 0L
             prefs[Keys.IS_PLAYING] = false
             prefs[Keys.CURRENT_INDEX] = 0
+        }
+    }
+
+    val audioPlaylists: Flow<List<AudioPlaylist>> = context.dataStore.data
+        .map { prefs ->
+            val json = prefs[Keys.AUDIO_PLAYLISTS] ?: "[]"
+            try {
+                // Deserialize JSON string back to List<AudioPlaylist>
+                val type = object : TypeToken<List<AudioPlaylist>>() {}.type
+                gson.fromJson<List<AudioPlaylist>>(json, type) ?: emptyList()
+            } catch (e: Exception) {
+                Log.e("PrefsManager", "Error parsing playlists JSON: ${e.message}")
+                emptyList()
+            }
+        }
+
+    /**
+     * NEW: Function to create and save a new playlist
+     */
+    suspend fun createPlaylist(name: String, audioIds: List<Long>) {
+        context.dataStore.edit { prefs ->
+            val existingPlaylists = prefs[Keys.AUDIO_PLAYLISTS]?.let {
+                val type = object : TypeToken<List<AudioPlaylist>>() {}.type
+                gson.fromJson<List<AudioPlaylist>>(it, type)
+            } ?: emptyList()
+
+            val newPlaylist = AudioPlaylist(
+                id = System.currentTimeMillis(), // Simple unique ID generation
+                name = name,
+                audioIds = audioIds,
+                dateCreated = System.currentTimeMillis()
+            )
+
+            val updatedList = existingPlaylists + newPlaylist
+            prefs[Keys.AUDIO_PLAYLISTS] = gson.toJson(updatedList)
         }
     }
 }

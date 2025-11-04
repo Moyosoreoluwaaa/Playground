@@ -100,6 +100,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var hasRestoredSession = false
     private var isLoadingMedia = false
 
+    // NEW State flow
+    private val _audioPlaylists = MutableStateFlow<List<AudioPlaylist>>(emptyList())
+    val audioPlaylists: StateFlow<List<AudioPlaylist>> = _audioPlaylists.asStateFlow()
+
     companion object {
         private const val TAG = "PlayerViewModel"
     }
@@ -108,6 +112,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         Log.d(TAG, "ðŸš€ PlayerViewModel initializing...")
         // *** NEW: Observe preferences reactively ***
         observePreferences()
+        preferencesManager.audioPlaylists
+            .onEach { playlists ->
+                _audioPlaylists.value = playlists
+            }
+            .launchIn(viewModelScope)
+
         loadMediaAndRestore()
     }
 
@@ -131,6 +141,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             }
             .launchIn(viewModelScope)
     }
+
+    private fun AudioItem.toMediaItem(): MediaItem = MediaItem.Builder()
+        .setUri(this.uri)
+        .setMediaId(this.id.toString())
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle(this.title)
+                .setArtist(this.artist)
+                .setAlbumTitle(this.album)
+                .setArtworkUri(this.albumArtUri)
+                .build()
+        )
+        .build()
 
     private fun loadMediaAndRestore() {
         viewModelScope.launch {
@@ -818,5 +841,66 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun setPlaybackSpeed(speed: Float) {
         player.setPlaybackSpeed(speed)
+    }
+
+    // NEW Core Function 1: Play a custom selection (used by both playlist and temp queue)
+    /**
+     * Loads a list of audio items as the new player queue and starts playback.
+     */
+    fun playSelectedAudio(selection: List<AudioItem>, startIndex: Int = 0) {
+        if (selection.isEmpty()) return
+
+        viewModelScope.launch {
+            val startAudio = selection[startIndex]
+            val savedPosition = _audioPositions.value[startAudio.id] ?: 0L
+
+            try {
+                player.stop()
+                player.clearMediaItems()
+
+                val mediaItems = selection.map { it.toMediaItem() }
+                player.setMediaItems(mediaItems, startIndex, savedPosition.coerceAtLeast(0L))
+                player.prepare()
+                player.playWhenReady = true
+
+                // Update internal state
+                _currentAudioItem.value = startAudio
+                _isAudioMode.value = true
+                currentPlaylist = selection.map { it.id }
+                currentIndex = startIndex
+                // ... (rest of the state updates)
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error playing selected audio", e)
+            }
+        }
+    }
+
+// NEW Core Function 2: Logic for playing a saved playlist
+    /**
+     * Loads a saved playlist into the player's queue and starts playback.
+     */
+    fun playPlaylist(playlist: AudioPlaylist, startIndex: Int = 0) {
+        viewModelScope.launch {
+            // Find the actual AudioItems from the stored IDs
+            val playlistItems = _audioItems.value.filter { it.id in playlist.audioIds }
+
+            if (playlistItems.isEmpty()) {
+                Log.w(TAG, "Playlist ${playlist.name} is empty or items not found.")
+                return@launch
+            }
+
+            // Use the common function to load the queue and play.
+            playSelectedAudio(playlistItems, startIndex)
+        }
+    }
+
+// NEW Core Function 3: Logic for creating a new playlist
+    /**
+     * Saves a new playlist to the data store.
+     */
+    fun createNewPlaylist(name: String, selectedAudioIds: List<Long>) {
+        viewModelScope.launch {
+            preferencesManager.createPlaylist(name, selectedAudioIds)
+        }
     }
 }

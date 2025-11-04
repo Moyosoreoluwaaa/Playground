@@ -53,6 +53,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -60,6 +61,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -69,32 +72,34 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.loose.mediaplayer.Screen
+import com.playground.loose.LibrarySearchBar
 import com.playground.loose.MiniPlayer
 import com.playground.loose.SortOption
 import com.playground.loose.VideoItem
 import com.playground.loose.ViewMode
+import com.playground.loose.formatDuration
 import java.util.Locale
 
-private fun formatDuration(ms: Long): String {
-    if (ms <= 0) return "00:00"
-
-    val totalSeconds = ms / 1000
-
-    // Check if the total duration is an hour or more (3600 seconds)
-    val hasHours = totalSeconds >= 3600
-
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-
-    return if (hasHours) {
-        // Format as H:MM:SS using Locale.US for consistent output
-        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        // Format as MM:SS using Locale.US for consistent output
-        String.format(Locale.US, "%02d:%02d", minutes, seconds)
-    }
-}
+//private fun formatDuration(ms: Long): String {
+//    if (ms <= 0) return "00:00"
+//
+//    val totalSeconds = ms / 1000
+//
+//    // Check if the total duration is an hour or more (3600 seconds)
+//    val hasHours = totalSeconds >= 3600
+//
+//    val hours = totalSeconds / 3600
+//    val minutes = (totalSeconds % 3600) / 60
+//    val seconds = totalSeconds % 60
+//
+//    return if (hasHours) {
+//        // Format as H:MM:SS using Locale.US for consistent output
+//        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+//    } else {
+//        // Format as MM:SS using Locale.US for consistent output
+//        String.format(Locale.US, "%02d:%02d", minutes, seconds)
+//    }
+//}
 
 enum class VideoFilter {
     ALL,      // All videos
@@ -125,6 +130,9 @@ fun VideoLibraryScreen(
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
 
+    // NEW: Focus Requester for search TextField
+    val searchFocusRequester = remember { FocusRequester() }
+
     // Filter + Search logic
     val processedVideos = remember(videoItems, selectedFilter, searchQuery) {
         val filtered = when (selectedFilter) {
@@ -147,27 +155,13 @@ fun VideoLibraryScreen(
                 TopAppBar(
                     title = {
                         if (isSearchActive) {
-                            TextField(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                placeholder = { Text("Search videos...") },
-                                singleLine = true,
-                                leadingIcon = {
-                                    IconButton(onClick = {
-                                        isSearchActive = false
-                                        searchQuery = ""
-                                    }) {
-                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                                    }
-                                },
-                                trailingIcon = {
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { searchQuery = "" }) {
-                                            Icon(Icons.Filled.Clear, contentDescription = "Clear")
-                                        }
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth()
+                            // Use the new reusable search bar component
+                            LibrarySearchBar(
+                                searchQuery = searchQuery,
+                                onSearchQueryChange = { searchQuery = it },
+                                onBack = { isSearchActive = false; searchQuery = "" },
+                                focusRequester = searchFocusRequester,
+                                placeholderText = "Search videos..."
                             )
                         } else {
                             Text("Video Library", fontSize = 30.sp)
@@ -175,6 +169,7 @@ fun VideoLibraryScreen(
                     },
                     actions = {
                         if (!isSearchActive) {
+                            // Search Button (sets isSearchActive=true, triggering LaunchedEffect)
                             IconButton(onClick = { isSearchActive = true }) {
                                 Icon(Icons.Filled.Search, contentDescription = "Search")
                             }
@@ -563,7 +558,7 @@ fun VideoListItem(
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .size(32.dp)
+                            .size(40.dp)
                     )
                 }
             }

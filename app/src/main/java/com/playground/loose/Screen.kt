@@ -1,25 +1,13 @@
 package com.loose.mediaplayer
 
 import androidx.annotation.OptIn
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.loose.mediaplayer.ui.screen.VideoLibraryScreen
 import com.loose.mediaplayer.ui.viewmodel.PlayerViewModel
@@ -61,24 +49,9 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
         // 🎵 Audio Library
         composable(Screen.AudioLibrary.route) {
             AudioLibraryScreen(
-                audioItems = audioItems,
-                currentAudioId = currentAudio?.id,
-                viewMode = audioViewMode,
-                sortOption = audioSortOption,
-                onAudioClick = { audio ->
-                    viewModel.playAudio(audio, autoPlay = true)
-                    navController.navigate(Screen.AudioPlayer.route)
-                },
-                onViewModeChange = viewModel::setAudioViewMode,
-                onSortChange = viewModel::setAudioSort,
-                onNavigateToPlayer = {
-                    if (currentAudio != null) navController.navigate(Screen.AudioPlayer.route)
-                },
-                currentAudio = currentAudio,
-                isPlaying = isPlaying,
-                onPlayPause = viewModel::playPause,
-                onNext = viewModel::playNext,
-                navController = navController // 👈 Add this
+                viewModel = viewModel,
+                onNavigateToPlayer = { navController.navigate("audio_player") },
+                navController = navController
             )
         }
 

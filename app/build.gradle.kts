@@ -67,6 +67,8 @@ dependencies {
     implementation(libs.androidx.ui.animation.core)
     implementation(libs.androidx.ui.text.google.fonts)
 
+    implementation("com.google.code.gson:gson:2.10.1")
+
     // State Management and DI (Hilt)
     //------------------------------------------
     implementation(libs.hilt.android)

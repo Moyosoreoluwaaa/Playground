@@ -28,6 +28,12 @@ data class VideoItem(
     val width: Int,
     val height: Int
 )
+data class AudioPlaylist(
+    val id: Long,
+    val name: String,
+    val audioIds: List<Long>, // Stores only IDs of the songs
+    val dateCreated: Long
+)
 
 // Recently played item
 data class RecentlyPlayedVideo(
@@ -83,4 +89,9 @@ enum class AppTheme {
     DARK,
     AMOLED,
     CUSTOM
+}
+
+enum class AudioLibraryTab(val title: String) {
+    LIBRARY("All Songs"),
+    PLAYLISTS("Playlists")
 }
