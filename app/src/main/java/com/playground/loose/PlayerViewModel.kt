@@ -16,6 +16,8 @@ import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.playground.loose.*
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
@@ -24,12 +26,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private val preferencesManager = PreferencesManager(application)
     private val mediaScanner = MediaScanner(application)
+    private val sessionManager = SessionManager(application)
 
-    // MediaController for background service
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
+    private var isControllerReady = false
 
-    // Use the controller's player instance
     val player: Player
         get() = controller ?: createFallbackPlayer()
 
@@ -79,9 +81,84 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var currentPlaylist = listOf<Long>()
     private var currentIndex = 0
 
+    private var positionTrackingJob: Job? = null
+    private var hasRestoredSession = false
+    private var isLoadingMedia = false
+
+    companion object {
+        private const val TAG = "PlayerViewModel"
+    }
+
     init {
-        initializeMediaController()
-        loadPreferencesAndRestoreSession()
+        Log.d(TAG, "🚀 PlayerViewModel initializing...")
+        loadMediaAndRestore()
+    }
+
+    private fun loadMediaAndRestore() {
+        viewModelScope.launch {
+            try {
+                // 1. Load preferences first
+                Log.d(TAG, "📋 Loading preferences...")
+                preferencesManager.appPreferences.first().let { prefs ->
+                    _audioViewMode.value = prefs.audioViewMode
+                    _videoViewMode.value = prefs.videoViewMode
+                    _audioSortOption.value = prefs.audioSortOption
+                    _videoSortOption.value = prefs.videoSortOption
+                    _repeatMode.value = prefs.lastPlaybackState.repeatMode
+                    _isAudioMode.value = prefs.lastPlaybackState.isAudioMode
+                    _recentlyPlayedVideoIds.value = prefs.recentlyPlayedVideos.map { it.videoId }
+                    Log.d(TAG, "✅ Preferences loaded")
+                }
+
+                // 2. Get saved session BEFORE loading media
+                val savedSession = sessionManager.getSession()
+                Log.d(TAG, "📂 Saved session: ${savedSession?.let { "mediaId=${it.mediaId}, pos=${formatTime(it.position)}" } ?: "none"}")
+
+                // 3. Initialize MediaController
+                Log.d(TAG, "🔌 Initializing MediaController...")
+                initializeMediaController()
+
+                // 4. Load media items
+                Log.d(TAG, "📂 Loading media items...")
+                isLoadingMedia = true
+                loadAudioItems()
+                loadVideoItems()
+
+                // Wait for items to load
+                var attempts = 0
+                while (attempts < 25 && (_audioItems.value.isEmpty() || _videoItems.value.isEmpty())) {
+                    delay(200)
+                    attempts++
+                }
+                isLoadingMedia = false
+                Log.d(TAG, "✅ Media items loaded: ${_audioItems.value.size} audio, ${_videoItems.value.size} video")
+
+                // 5. Wait for controller to be ready
+                attempts = 0
+                while (!isControllerReady && attempts < 50) {
+                    delay(100)
+                    attempts++
+                }
+
+                if (!isControllerReady) {
+                    Log.e(TAG, "❌ MediaController not ready after timeout")
+                    return@launch
+                }
+
+                Log.d(TAG, "✅ MediaController ready")
+
+                // 6. Restore session if available
+                if (savedSession != null && savedSession.mediaId != 0L) {
+                    Log.d(TAG, "🎬 Restoring session for mediaId=${savedSession.mediaId}")
+                    restoreSessionInternal(savedSession)
+                } else {
+                    Log.d(TAG, "ℹ️ No session to restore")
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error in loadMediaAndRestore", e)
+            }
+        }
     }
 
     private fun initializeMediaController() {
@@ -95,18 +172,21 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
         controllerFuture?.addListener(
             {
-                controller = controllerFuture?.get()
-                setupPlayerListener()
-
-                // Attach debugger in debug builds
-                controller?.attachDebugger()
+                try {
+                    controller = controllerFuture?.get()
+                    isControllerReady = true
+                    Log.d(TAG, "✅ MediaController connected")
+                    setupPlayerListener()
+                    controller?.attachDebugger()
+                } catch (e: Exception) {
+                    Log.e(TAG, "❌ Failed to connect MediaController", e)
+                }
             },
             MoreExecutors.directExecutor()
         )
     }
 
     private fun createFallbackPlayer(): Player {
-        // Fallback player in case MediaController isn't ready
         return androidx.media3.exoplayer.ExoPlayer.Builder(getApplication())
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -123,19 +203,33 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _isPlaying.value = isPlaying
-                saveCurrentState()
+                Log.d(TAG, "🎵 Is playing changed: $isPlaying")
+
+                if (isPlaying) {
+                    startPositionTracking()
+                } else {
+                    stopPositionTracking()
+                    // Save session when pausing (with valid position check)
+                    if (player.currentPosition > 1000) {
+                        viewModelScope.launch {
+                            delay(100) // Small delay to ensure position is stable
+                            saveCurrentSession(force = true)
+                        }
+                    }
+                }
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 mediaItem?.let {
                     _duration.value = player.duration
-                    saveCurrentState()
+                    Log.d(TAG, "🎬 Media transition: ${it.mediaMetadata.title}")
                 }
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_READY) {
                     _duration.value = player.duration
+                    Log.d(TAG, "✅ Player READY - Duration: ${_duration.value}ms")
                 }
 
                 if (playbackState == Player.STATE_ENDED) {
@@ -143,16 +237,23 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         })
+    }
 
-        // Update position periodically
-        viewModelScope.launch {
+    private fun startPositionTracking() {
+        positionTrackingJob?.cancel()
+        positionTrackingJob = viewModelScope.launch {
             while (true) {
                 if (player.isPlaying) {
                     _currentPosition.value = player.currentPosition
                 }
-                kotlinx.coroutines.delay(500)
+                delay(500)
             }
         }
+    }
+
+    private fun stopPositionTracking() {
+        positionTrackingJob?.cancel()
+        positionTrackingJob = null
     }
 
     private fun handlePlaybackEnded() {
@@ -161,99 +262,63 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 player.seekTo(0)
                 player.play()
             }
-            RepeatMode.ALL -> {
-                playNext()
-            }
+            RepeatMode.ALL -> playNext()
             RepeatMode.OFF -> {
-                // Stop at end
+                saveCurrentSession(force = true)
             }
         }
     }
 
-    private var isRestoringSession = false
-
-    private fun loadPreferencesAndRestoreSession() {
-        viewModelScope.launch {
-            preferencesManager.appPreferences.first().let { prefs ->
-                _audioViewMode.value = prefs.audioViewMode
-                _videoViewMode.value = prefs.videoViewMode
-                _audioSortOption.value = prefs.audioSortOption
-                _videoSortOption.value = prefs.videoSortOption
-                _repeatMode.value = prefs.lastPlaybackState.repeatMode
-                _isAudioMode.value = prefs.lastPlaybackState.isAudioMode
-                _recentlyPlayedVideoIds.value = prefs.recentlyPlayedVideos.map { it.videoId }
-
-                loadAudioItems()
-                loadVideoItems()
-
-                val state = prefs.lastPlaybackState
-                if (state.mediaId != 0L && !isRestoringSession) {
-                    isRestoringSession = true
-                    restorePlaybackSession(state)
-                }
-            }
-        }
-    }
-
-    private suspend fun restorePlaybackSession(state: PlaybackState) {
-        // Wait a bit for media controller to be ready
-        kotlinx.coroutines.delay(500)
-
-        if (state.isAudioMode) {
-            _audioItems.value.find { it.id == state.mediaId }?.let { audio ->
-                playAudio(audio, false)
-                // Wait for player to be ready
-                kotlinx.coroutines.delay(300)
-                if (state.position > 0) {
-                    player.seekTo(state.position)
-                }
-                player.playWhenReady = false // Don't auto-play on restore
-            }
-        } else {
-            _videoItems.value.find { it.id == state.mediaId }?.let { video ->
-                playVideo(video, false)
-                // Wait for player to be ready
-                kotlinx.coroutines.delay(300)
-                if (state.position > 0) {
-                    player.seekTo(state.position)
-                }
-                player.playWhenReady = false // Don't auto-play on restore
-            }
-        }
-
-        currentPlaylist = state.currentPlaylistIds
-        currentIndex = state.currentIndex
-    }
-
-    fun loadAudioItems() {
-        viewModelScope.launch {
-            val items = mediaScanner.scanAudioFiles(_audioSortOption.value)
-            _audioItems.value = items
-        }
-    }
-
-    fun loadVideoItems() {
-        viewModelScope.launch {
-            val items = mediaScanner.scanVideoFiles(_videoSortOption.value)
-            _videoItems.value = items
-        }
-    }
-
-    private var lastPlayedMediaId = 0L
-
-    fun playAudio(audio: AudioItem, autoPlay: Boolean = true) {
-        if (lastPlayedMediaId == audio.id && _currentAudioItem.value?.id == audio.id) {
-            Log.d(TAG, "Ignoring duplicate playAudio call for ${audio.title}")
+    private suspend fun restoreSessionInternal(session: SessionManager.SavedSession) {
+        if (hasRestoredSession) {
+            Log.d(TAG, "⚠️ Session already restored, skipping")
             return
         }
 
-        lastPlayedMediaId = audio.id
-        Log.d(TAG, "=== PLAY AUDIO START ===")
-        Log.d(TAG, "Title: ${audio.title}")
-        Log.d(TAG, "URI: ${audio.uri}")
-        Log.d(TAG, "AutoPlay: $autoPlay")
+        hasRestoredSession = true
 
         try {
+            Log.d(TAG, "🔄 Restoring session...")
+            Log.d(TAG, "   MediaID: ${session.mediaId}")
+            Log.d(TAG, "   Position: ${formatTime(session.position)}")
+            Log.d(TAG, "   IsAudio: ${session.isAudioMode}")
+
+            if (session.isAudioMode) {
+                val audio = _audioItems.value.find { it.id == session.mediaId }
+                if (audio != null) {
+                    Log.d(TAG, "✅ Found audio: ${audio.title}")
+                    restoreAudio(audio, session.position)
+                } else {
+                    Log.w(TAG, "⚠️ Audio item ${session.mediaId} not found")
+                    logAvailableIds(true)
+                }
+            } else {
+                val video = _videoItems.value.find { it.id == session.mediaId }
+                if (video != null) {
+                    Log.d(TAG, "✅ Found video: ${video.title}")
+                    restoreVideo(video, session.position)
+                } else {
+                    Log.w(TAG, "⚠️ Video item ${session.mediaId} not found")
+                    logAvailableIds(false)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to restore session", e)
+        }
+    }
+
+    private fun logAvailableIds(isAudio: Boolean) {
+        val items = if (isAudio) _audioItems.value else _videoItems.value
+        Log.d(TAG, "Available ${if (isAudio) "audio" else "video"} items (first 5):")
+        items.take(5).forEach {
+            Log.d(TAG, "   ID: ${if (isAudio) (it as AudioItem).id else (it as VideoItem).id}")
+        }
+    }
+
+    private suspend fun restoreAudio(audio: AudioItem, position: Long) {
+        try {
+            Log.d(TAG, "🎵 Restoring audio: ${audio.title} at ${formatTime(position)}")
+
             player.stop()
             player.clearMediaItems()
 
@@ -272,39 +337,46 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
             player.setMediaItem(mediaItem)
             player.prepare()
-            player.playWhenReady = autoPlay
 
-            Log.d(TAG, "Player state after setup:")
-            Log.d(TAG, "  - PlaybackState: ${player.playbackState}")
-            Log.d(TAG, "  - PlayWhenReady: ${player.playWhenReady}")
-            Log.d(TAG, "  - IsPlaying: ${player.isPlaying}")
+            // Wait for player to be ready
+            var waitAttempts = 0
+            while (player.playbackState != Player.STATE_READY && waitAttempts < 30) {
+                delay(100)
+                waitAttempts++
+            }
 
-            _currentAudioItem.value = audio
-            _isAudioMode.value = true
-            currentPlaylist = _audioItems.value.map { it.id }
-            currentIndex = _audioItems.value.indexOf(audio)
+            if (player.playbackState == Player.STATE_READY) {
+                // Validate and seek to position
+                val validPosition = position.coerceIn(0, player.duration)
+                if (validPosition > 0) {
+                    player.seekTo(validPosition)
+                    _currentPosition.value = validPosition
+                    Log.d(TAG, "⏩ Seeked to ${formatTime(validPosition)} (duration: ${formatTime(player.duration)})")
+                }
 
-            saveCurrentState()
-            Log.d(TAG, "=== PLAY AUDIO END ===")
+                // Update state WITHOUT triggering new save
+                _currentAudioItem.value = audio
+                _isAudioMode.value = true
+                _duration.value = player.duration
+                currentPlaylist = _audioItems.value.map { it.id }
+                currentIndex = _audioItems.value.indexOf(audio)
+
+                // Don't auto-play on restore
+                player.playWhenReady = false
+
+                Log.d(TAG, "✅ Audio restored successfully")
+            } else {
+                Log.e(TAG, "❌ Player not ready (state=${player.playbackState})")
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error playing audio", e)
+            Log.e(TAG, "❌ Failed to restore audio", e)
         }
     }
 
-    fun playVideo(video: VideoItem, autoPlay: Boolean = true) {
-        if (lastPlayedMediaId == video.id && _currentVideoItem.value?.id == video.id) {
-            Log.d(TAG, "Ignoring duplicate playVideo call for ${video.title}")
-            return
-        }
-
-        lastPlayedMediaId = video.id
-        Log.d(TAG, "=== PLAY VIDEO START ===")
-        Log.d(TAG, "Title: ${video.title}")
-        Log.d(TAG, "URI: ${video.uri}")
-        Log.d(TAG, "AutoPlay: $autoPlay")
-        Log.d(TAG, "Resolution: ${video.width}x${video.height}")
-
+    private suspend fun restoreVideo(video: VideoItem, position: Long) {
         try {
+            Log.d(TAG, "🎬 Restoring video: ${video.title} at ${formatTime(position)}")
+
             player.stop()
             player.clearMediaItems()
 
@@ -320,56 +392,218 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
             player.setMediaItem(mediaItem)
             player.prepare()
-            player.playWhenReady = autoPlay
 
-            Log.d(TAG, "Player state after setup:")
-            Log.d(TAG, "  - PlaybackState: ${player.playbackState}")
-            Log.d(TAG, "  - PlayWhenReady: ${player.playWhenReady}")
-            Log.d(TAG, "  - IsPlaying: ${player.isPlaying}")
-
-            _currentVideoItem.value = video
-            _isAudioMode.value = false
-            currentPlaylist = _videoItems.value.map { it.id }
-            currentIndex = _videoItems.value.indexOf(video)
-
-            // Add to recently played
-            viewModelScope.launch {
-                preferencesManager.addRecentlyPlayedVideo(video.id)
-                // Reload recently played list
-                _recentlyPlayedVideoIds.value =
-                    preferencesManager.appPreferences.first().recentlyPlayedVideos.map { it.videoId }
+            // Wait for player to be ready
+            var waitAttempts = 0
+            while (player.playbackState != Player.STATE_READY && waitAttempts < 30) {
+                delay(100)
+                waitAttempts++
             }
 
-            saveCurrentState()
-            Log.d(TAG, "=== PLAY VIDEO END ===")
+            if (player.playbackState == Player.STATE_READY) {
+                // Validate and seek to position
+                val validPosition = position.coerceIn(0, player.duration)
+                if (validPosition > 0) {
+                    player.seekTo(validPosition)
+                    _currentPosition.value = validPosition
+                    Log.d(TAG, "⏩ Seeked to ${formatTime(validPosition)}")
+                }
+
+                // Update state WITHOUT triggering new save
+                _currentVideoItem.value = video
+                _isAudioMode.value = false
+                _duration.value = player.duration
+                currentPlaylist = _videoItems.value.map { it.id }
+                currentIndex = _videoItems.value.indexOf(video)
+
+                // Don't auto-play on restore
+                player.playWhenReady = false
+
+                Log.d(TAG, "✅ Video restored successfully")
+            } else {
+                Log.e(TAG, "❌ Player not ready (state=${player.playbackState})")
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error playing video", e)
+            Log.e(TAG, "❌ Failed to restore video", e)
         }
     }
 
-    companion object {
-        private const val TAG = "PlayerViewModel"
+    private fun formatTime(ms: Long): String {
+        val seconds = ms / 1000
+        val minutes = seconds / 60
+        val secs = seconds % 60
+        return "${minutes}:${secs.toString().padStart(2, '0')}"
+    }
+
+    fun loadAudioItems() {
+        viewModelScope.launch {
+            val items = mediaScanner.scanAudioFiles(_audioSortOption.value)
+            _audioItems.value = items
+            Log.d(TAG, "📁 Loaded ${items.size} audio items")
+        }
+    }
+
+    fun loadVideoItems() {
+        viewModelScope.launch {
+            val items = mediaScanner.scanVideoFiles(_videoSortOption.value)
+            _videoItems.value = items
+            Log.d(TAG, "📁 Loaded ${items.size} video items")
+        }
+    }
+
+    private var lastPlayedMediaId = 0L
+
+    fun playAudio(audio: AudioItem, autoPlay: Boolean = true) {
+        // Prevent duplicate calls
+        if (lastPlayedMediaId == audio.id && _currentAudioItem.value?.id == audio.id && !autoPlay) {
+            Log.d(TAG, "⏭️ Ignoring duplicate playAudio call")
+            return
+        }
+
+        lastPlayedMediaId = audio.id
+        Log.d(TAG, "=== PLAY AUDIO START ===")
+        Log.d(TAG, "Title: ${audio.title}")
+        Log.d(TAG, "URI: ${audio.uri}")
+        Log.d(TAG, "AutoPlay: $autoPlay")
+
+        viewModelScope.launch {
+            try {
+                player.stop()
+                player.clearMediaItems()
+
+                val mediaItem = MediaItem.Builder()
+                    .setUri(audio.uri)
+                    .setMediaId(audio.id.toString())
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(audio.title)
+                            .setArtist(audio.artist)
+                            .setAlbumTitle(audio.album)
+                            .setArtworkUri(audio.albumArtUri)
+                            .build()
+                    )
+                    .build()
+
+                player.setMediaItem(mediaItem)
+                player.prepare()
+                player.playWhenReady = autoPlay
+
+                // Update state
+                _currentAudioItem.value = audio
+                _isAudioMode.value = true
+                currentPlaylist = _audioItems.value.map { it.id }
+                currentIndex = _audioItems.value.indexOf(audio)
+
+                // Wait for player to be ready before saving
+                var attempts = 0
+                while (player.playbackState != Player.STATE_READY && attempts < 20) {
+                    delay(100)
+                    attempts++
+                }
+
+                // Save initial session at position 0
+                if (player.playbackState == Player.STATE_READY) {
+                    sessionManager.saveSession(
+                        mediaId = audio.id,
+                        position = 0L,
+                        isAudioMode = true,
+                        force = true
+                    )
+                }
+
+                Log.d(TAG, "=== PLAY AUDIO END ===")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error playing audio", e)
+            }
+        }
+    }
+
+    fun playVideo(video: VideoItem, autoPlay: Boolean = true) {
+        // Prevent duplicate calls
+        if (lastPlayedMediaId == video.id && _currentVideoItem.value?.id == video.id && !autoPlay) {
+            Log.d(TAG, "⏭️ Ignoring duplicate playVideo call")
+            return
+        }
+
+        lastPlayedMediaId = video.id
+        Log.d(TAG, "=== PLAY VIDEO START ===")
+        Log.d(TAG, "Title: ${video.title}")
+        Log.d(TAG, "URI: ${video.uri}")
+        Log.d(TAG, "AutoPlay: $autoPlay")
+
+        viewModelScope.launch {
+            try {
+                player.stop()
+                player.clearMediaItems()
+
+                val mediaItem = MediaItem.Builder()
+                    .setUri(video.uri)
+                    .setMediaId(video.id.toString())
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(video.title)
+                            .build()
+                    )
+                    .build()
+
+                player.setMediaItem(mediaItem)
+                player.prepare()
+                player.playWhenReady = autoPlay
+
+                _currentVideoItem.value = video
+                _isAudioMode.value = false
+                currentPlaylist = _videoItems.value.map { it.id }
+                currentIndex = _videoItems.value.indexOf(video)
+
+                // Add to recently played
+                preferencesManager.addRecentlyPlayedVideo(video.id)
+                _recentlyPlayedVideoIds.value =
+                    preferencesManager.appPreferences.first().recentlyPlayedVideos.map { it.videoId }
+
+                // Wait for player to be ready before saving
+                var attempts = 0
+                while (player.playbackState != Player.STATE_READY && attempts < 20) {
+                    delay(100)
+                    attempts++
+                }
+
+                // Save initial session at position 0
+                if (player.playbackState == Player.STATE_READY) {
+                    sessionManager.saveSession(
+                        mediaId = video.id,
+                        position = 0L,
+                        isAudioMode = false,
+                        force = true
+                    )
+                }
+
+                Log.d(TAG, "=== PLAY VIDEO END ===")
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error playing video", e)
+            }
+        }
     }
 
     fun playPause() {
-        Log.d(TAG, "playPause called - Current state: isPlaying=${player.isPlaying}")
-
         if (player.isPlaying) {
             player.pause()
         } else {
             if (player.playbackState == Player.STATE_IDLE) {
-                Log.d(TAG, "Player was idle, re-preparing...")
                 player.prepare()
             }
             player.play()
         }
-
-        Log.d(TAG, "playPause result: isPlaying=${player.isPlaying}, playWhenReady=${player.playWhenReady}")
     }
 
     fun seekTo(position: Long) {
         player.seekTo(position)
         _currentPosition.value = position
+
+        // Save session after seek (with delay to ensure position is stable)
+        viewModelScope.launch {
+            delay(500)
+            saveCurrentSession(force = true)
+        }
     }
 
     fun playNext() {
@@ -400,12 +634,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun skipForward() {
         val newPosition = (player.currentPosition + 10000).coerceAtMost(player.duration)
-        player.seekTo(newPosition)
+        seekTo(newPosition)
     }
 
     fun skipBackward() {
         val newPosition = (player.currentPosition - 10000).coerceAtLeast(0)
-        player.seekTo(newPosition)
+        seekTo(newPosition)
     }
 
     fun toggleRepeatMode() {
@@ -414,7 +648,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             RepeatMode.ALL -> RepeatMode.ONE
             RepeatMode.ONE -> RepeatMode.OFF
         }
-        saveCurrentState()
+        viewModelScope.launch {
+            preferencesManager.savePlaybackState(
+                PlaybackState(repeatMode = _repeatMode.value)
+            )
+        }
     }
 
     fun setAudioViewMode(mode: ViewMode) {
@@ -447,31 +685,37 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    private fun saveCurrentState() {
-        viewModelScope.launch {
-            val mediaId = if (_isAudioMode.value) {
-                _currentAudioItem.value?.id ?: 0L
-            } else {
-                _currentVideoItem.value?.id ?: 0L
-            }
+    private fun saveCurrentSession(force: Boolean = false) {
+        // Don't save during media loading or restoration
+        if (isLoadingMedia || !hasRestoredSession) {
+            return
+        }
 
-            val state = PlaybackState(
+        val mediaId = if (_isAudioMode.value) {
+            _currentAudioItem.value?.id
+        } else {
+            _currentVideoItem.value?.id
+        } ?: return
+
+        viewModelScope.launch {
+            sessionManager.saveSession(
                 mediaId = mediaId,
                 position = player.currentPosition,
-                isPlaying = player.isPlaying,
-                repeatMode = _repeatMode.value,
                 isAudioMode = _isAudioMode.value,
-                currentPlaylistIds = currentPlaylist,
-                currentIndex = currentIndex
+                force = force
             )
-
-            preferencesManager.savePlaybackState(state)
         }
     }
 
     override fun onCleared() {
+        // Save final session state
+        saveCurrentSession(force = true)
+
+        stopPositionTracking()
         controllerFuture?.let { MediaController.releaseFuture(it) }
         super.onCleared()
+
+        Log.d(TAG, "🛑 PlayerViewModel cleared")
     }
 
     fun setPlaybackSpeed(speed: Float) {
