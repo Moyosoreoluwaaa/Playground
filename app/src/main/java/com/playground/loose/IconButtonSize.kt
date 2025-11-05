@@ -99,6 +99,7 @@ fun ActionIconButton(
     }
 }
 
+// IconButtonSize.kt - Update ActionRowAboveSeek for Video Player
 @Composable
 fun ActionRowAboveSeek(
     modifier: Modifier = Modifier,
@@ -108,15 +109,17 @@ fun ActionRowAboveSeek(
     onRotate: () -> Unit,
     onToggleAudioOnly: () -> Unit,
     isAudioOnlyActive: Boolean,
+    playbackSpeed: Float = 1f, // NEW parameter
+    isLandscape: Boolean = false, // NEW parameter
     actionBgColor: Color = MaterialTheme.colorScheme.surfaceVariant,
     activeColor: Color = MaterialTheme.colorScheme.primary
 ) {
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // left: repeat
+        // Repeat
         ActionIconButton(
             onClick = onToggleRepeat,
             icon = when (repeatMode) {
@@ -124,22 +127,27 @@ fun ActionRowAboveSeek(
                 RepeatMode.ONE -> Icons.Filled.RepeatOne
                 RepeatMode.ALL -> Icons.Filled.Repeat
             },
-            backgroundColor =  if (repeatMode == RepeatMode.OFF) MaterialTheme.colorScheme.onSurface else activeColor,
+            backgroundColor = if (repeatMode == RepeatMode.OFF) actionBgColor else activeColor,
             contentDescription = "Repeat"
         )
 
+        // Speed - Active color when not 1.0x
         ActionIconButton(
             onClick = onShowSpeed,
             icon = Icons.Filled.Speed,
-            backgroundColor = actionBgColor,
-            contentDescription = "Speed",
+            backgroundColor = if (playbackSpeed != 1f) activeColor else actionBgColor,
+            contentDescription = "Speed"
         )
+
+        // Rotation - Active color when landscape
         ActionIconButton(
             onClick = onRotate,
             icon = Icons.Filled.ScreenRotation,
-            backgroundColor = actionBgColor,
-            contentDescription = "Rotate",
+            backgroundColor = if (isLandscape) activeColor else actionBgColor,
+            contentDescription = "Rotate"
         )
+
+        // Audio Only - Active color when enabled
         ActionIconButton(
             onClick = onToggleAudioOnly,
             icon = Icons.Filled.Headphones,
@@ -147,9 +155,6 @@ fun ActionRowAboveSeek(
             contentDescription = "Audio only"
         )
     }
-
-    // right: placeholder (keeps row balanced)
-    Spacer(modifier = Modifier.width(48.dp))
 }
 
 @Composable

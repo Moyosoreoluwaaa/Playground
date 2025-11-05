@@ -72,27 +72,44 @@ class MediaPlaybackService : MediaSessionService() {
             }
             ACTION_NEXT -> {
                 Log.d("MediaService", "⏭️ ACTION_NEXT received")
-                mediaSession?.player?.let {
-                    // Check if there's a next item
-                    if (it.hasNextMediaItem()) {
-                        it.seekToNextMediaItem()
-                    } else if (it.repeatMode == Player.REPEAT_MODE_ALL) {
-                        it.seekTo(0, 0) // Go to first item
+                mediaSession?.player?.let { player ->
+                    when {
+                        player.hasNextMediaItem() -> {
+                            player.seekToNextMediaItem()
+                        }
+                        player.repeatMode == Player.REPEAT_MODE_ALL && player.mediaItemCount > 0 -> {
+                            // Loop back to first item
+                            player.seekTo(0, 0)
+                            player.play()
+                        }
+                        player.mediaItemCount > 0 -> {
+                            // No repeat mode, loop anyway for better UX
+                            player.seekTo(0, 0)
+                            player.play()
+                        }
                     }
                 }
             }
             ACTION_PREV -> {
                 Log.d("MediaService", "⏮️ ACTION_PREV received")
-                mediaSession?.player?.let {
-                    // If current position > 3 seconds, restart current track
-                    if (it.currentPosition > 3000) {
-                        it.seekTo(0)
-                    } else {
-                        // Otherwise, go to previous track
-                        if (it.hasPreviousMediaItem()) {
-                            it.seekToPreviousMediaItem()
-                        } else if (it.repeatMode == Player.REPEAT_MODE_ALL) {
-                            it.seekTo(it.mediaItemCount - 1, 0) // Go to last item
+                mediaSession?.player?.let { player ->
+                    when {
+                        player.currentPosition > 3000 -> {
+                            // Restart current track if > 3 seconds
+                            player.seekTo(0)
+                        }
+                        player.hasPreviousMediaItem() -> {
+                            player.seekToPreviousMediaItem()
+                        }
+                        player.repeatMode == Player.REPEAT_MODE_ALL && player.mediaItemCount > 0 -> {
+                            // Loop to last item
+                            player.seekTo(player.mediaItemCount - 1, 0)
+                            player.play()
+                        }
+                        player.mediaItemCount > 0 -> {
+                            // No repeat mode, loop anyway for better UX
+                            player.seekTo(player.mediaItemCount - 1, 0)
+                            player.play()
                         }
                     }
                 }
@@ -100,29 +117,6 @@ class MediaPlaybackService : MediaSessionService() {
         }
         return super.onStartCommand(intent, flags, startId)
     }
-
-//    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-//        when (intent?.action) {
-//            ACTION_PLAY_PAUSE -> {
-//                mediaSession?.player?.let {
-//                    if (it.isPlaying) {
-//                        it.pause()
-//                    } else {
-//                        it.play()
-//                    }
-//                }
-//            }
-//            ACTION_NEXT -> {
-//                Log.d("MediaService", "⏭️ ACTION_NEXT received")
-//                mediaSession?.player?.seekToNextMediaItem()
-//            }
-//            ACTION_PREV -> {
-//                Log.d("MediaService", "⏮️ ACTION_PREV received")
-//                mediaSession?.player?.seekToPreviousMediaItem()
-//            }
-//        }
-//        return super.onStartCommand(intent, flags, startId)
-//    }
 
     private fun createSessionActivityIntent(): PendingIntent {
         val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
@@ -225,7 +219,7 @@ class MediaPlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
-    // MediaPlaybackService.kt - Update MediaSessionCallback
+    // Update MediaSessionCallback
     private inner class MediaSessionCallback : MediaSession.Callback {
 
         override fun onAddMediaItems(
@@ -267,21 +261,30 @@ class MediaPlaybackService : MediaSessionService() {
                         return true
                     }
                     android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> {
-                        if (player.hasNextMediaItem()) {
-                            player.seekToNextMediaItem()
-                        } else if (player.repeatMode == Player.REPEAT_MODE_ALL) {
-                            player.seekTo(0, 0)
+                        when {
+                            player.hasNextMediaItem() -> player.seekToNextMediaItem()
+                            player.repeatMode == Player.REPEAT_MODE_ALL && player.mediaItemCount > 0 -> {
+                                player.seekTo(0, 0)
+                                player.play()
+                            }
+                            player.mediaItemCount > 0 -> {
+                                player.seekTo(0, 0)
+                                player.play()
+                            }
                         }
                         return true
                     }
                     android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
-                        if (player.currentPosition > 3000) {
-                            player.seekTo(0)
-                        } else {
-                            if (player.hasPreviousMediaItem()) {
-                                player.seekToPreviousMediaItem()
-                            } else if (player.repeatMode == Player.REPEAT_MODE_ALL) {
+                        when {
+                            player.currentPosition > 3000 -> player.seekTo(0)
+                            player.hasPreviousMediaItem() -> player.seekToPreviousMediaItem()
+                            player.repeatMode == Player.REPEAT_MODE_ALL && player.mediaItemCount > 0 -> {
                                 player.seekTo(player.mediaItemCount - 1, 0)
+                                player.play()
+                            }
+                            player.mediaItemCount > 0 -> {
+                                player.seekTo(player.mediaItemCount - 1, 0)
+                                player.play()
                             }
                         }
                         return true

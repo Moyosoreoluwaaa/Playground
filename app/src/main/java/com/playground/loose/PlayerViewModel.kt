@@ -122,6 +122,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     private var playlistQueue = listOf<Long>()
 
+    // PlayerViewModel.kt - Add playbackSpeed state
+    private val _playbackSpeed = MutableStateFlow(1f)
+    val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
+
+
     companion object {
         private const val TAG = "PlayerViewModel"
     }
@@ -986,6 +991,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun setPlaybackSpeed(speed: Float) {
+        _playbackSpeed.value = speed
         player.setPlaybackSpeed(speed)
     }
 

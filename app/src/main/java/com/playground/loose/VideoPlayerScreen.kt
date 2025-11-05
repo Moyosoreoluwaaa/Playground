@@ -17,7 +17,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,16 +32,9 @@ import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
-import androidx.compose.material.icons.filled.ScreenRotation
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -106,9 +98,7 @@ fun VideoPlayerScreen(
     var isLandscape by remember { mutableStateOf(false) }
     var showSpeedSheet by remember { mutableStateOf(false) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
-
     var isAudioOnlyMode by remember { mutableStateOf(false) }
-
 
     // Double-tap indicators (short flashes)
     var showForwardIndicator by remember { mutableStateOf(false) }
@@ -116,7 +106,7 @@ fun VideoPlayerScreen(
 
     // Gesture state
     val gestureType = remember { mutableStateOf<GestureType?>(null) }
-    var gestureValue by remember { mutableFloatStateOf(0f) } // 0..1 for volume/brightness
+    var gestureValue by remember { mutableFloatStateOf(0f) }
     var showGestureOverlay by remember { mutableStateOf(false) }
 
     // Seek-drag preview
@@ -128,23 +118,30 @@ fun VideoPlayerScreen(
     // audio manager / brightness
     val audioManager = remember { context.getSystemService(Context.AUDIO_SERVICE) as AudioManager }
     val maxVolume = remember { audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC) }
-    val currentVolume =
-        remember { mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)) }
+    val currentVolume = remember { mutableIntStateOf(audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)) }
     var currentBrightness by remember {
-        mutableFloatStateOf(
-            activity?.window?.attributes?.screenBrightness ?: 0.5f
-        )
+        mutableFloatStateOf(activity?.window?.attributes?.screenBrightness ?: 0.5f)
     }
 
     // Keep screen awake while player visible
     DisposableEffect(Unit) {
         activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        onDispose { activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+            // Reset orientation
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+
+            // Stop video if not in audio-only mode
+            if (!isAudioOnlyMode) {
+                player.pause()
+            }
+        }
     }
 
-    // Auto-hide controls when playing
-    LaunchedEffect(showControls, isPlaying) {
-        if (showControls && isPlaying) {
+    // Auto-hide controls when playing - but not during gestures
+    LaunchedEffect(showControls, isPlaying, showGestureOverlay, showSeekPreview) {
+        if (showControls && isPlaying && !showGestureOverlay && !showSeekPreview) {
             delay(3000)
             showControls = false
         }
@@ -154,12 +151,12 @@ fun VideoPlayerScreen(
     LaunchedEffect(showControls) {
         activity?.window?.let { window ->
             val controller = WindowCompat.getInsetsController(window, window.decorView)
-            controller.systemBarsBehavior =
-                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             if (showControls) controller.show(WindowInsetsCompat.Type.systemBars())
             else controller.hide(WindowInsetsCompat.Type.systemBars())
         }
     }
+
     Scaffold { paddingValues ->
         Box(
             modifier = Modifier
@@ -171,7 +168,7 @@ fun VideoPlayerScreen(
             AndroidView(
                 factory = { ctx ->
                     PlayerView(ctx).apply {
-                        this.player = player // explicit receiver avoids shadowing
+                        this.player = player
                         useController = false
                     }
                 },
@@ -180,13 +177,17 @@ fun VideoPlayerScreen(
                     .pointerInput(player) {
                         // Combined tap & drag gestures
                         detectTapGestures(
-                            onTap = { showControls = !showControls },
+                            onTap = {
+                                // Only toggle if no gesture active
+                                if (gestureType.value == null) {
+                                    showControls = !showControls
+                                }
+                            },
                             onDoubleTap = { offset ->
                                 val w = size.width.toFloat().coerceAtLeast(1f)
                                 if (offset.x < w / 2f) {
                                     // left double-tap => -10s
-                                    val newPos =
-                                        (player.currentPosition - 10_000L).coerceAtLeast(0L)
+                                    val newPos = (player.currentPosition - 10_000L).coerceAtLeast(0L)
                                     onSeek(newPos)
                                     coroutineScope.launch {
                                         showBackwardIndicator = true
@@ -195,12 +196,7 @@ fun VideoPlayerScreen(
                                     }
                                 } else {
                                     // right double-tap => +10s
-                                    val newPos = (player.currentPosition + 10_000L).coerceAtMost(
-                                        max(
-                                            0L,
-                                            player.duration
-                                        )
-                                    )
+                                    val newPos = (player.currentPosition + 10_000L).coerceAtMost(max(0L, player.duration))
                                     onSeek(newPos)
                                     coroutineScope.launch {
                                         showForwardIndicator = true
@@ -221,19 +217,20 @@ fun VideoPlayerScreen(
                                         // left third => brightness
                                         gestureType.value = GestureType.BRIGHTNESS
                                         showGestureOverlay = true
+                                        showControls = false // Hide controls immediately
                                     }
-
                                     offset.x > widthF * 0.66f -> {
                                         // right third => volume
                                         gestureType.value = GestureType.VOLUME
                                         showGestureOverlay = true
+                                        showControls = false // Hide controls immediately
                                     }
-
                                     else -> {
                                         // middle area => seek
                                         gestureType.value = GestureType.SEEK
                                         isSeekingDrag = true
                                         showSeekPreview = true
+                                        showControls = false // Hide controls immediately
                                         // init preview to current position
                                         seekPreviewPosition = player.currentPosition
                                         seekPreviewDeltaMs = 0L
@@ -248,53 +245,32 @@ fun VideoPlayerScreen(
                                         // Vertical drag changes volume: upward -> increase
                                         val sensitivity = 0.005f // tweak
                                         val delta = (-dy * sensitivity * maxVolume).toInt()
-                                        val newVol =
-                                            (currentVolume.intValue + delta).coerceIn(0, maxVolume)
+                                        val newVol = (currentVolume.intValue + delta).coerceIn(0, maxVolume)
                                         if (newVol != currentVolume.intValue) {
-                                            audioManager.setStreamVolume(
-                                                AudioManager.STREAM_MUSIC,
-                                                newVol,
-                                                0
-                                            )
+                                            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, newVol, 0)
                                             currentVolume.intValue = newVol
                                         }
                                         gestureValue = currentVolume.intValue.toFloat() / maxVolume
                                     }
-
                                     GestureType.BRIGHTNESS -> {
                                         val sensitivity = 0.003f
                                         val delta = -dy * sensitivity
                                         val nb = (currentBrightness + delta).coerceIn(0.01f, 1f)
-                                        activity?.window?.attributes =
-                                            activity.window.attributes.apply {
-                                                screenBrightness = nb
-                                            }
+                                        activity?.window?.attributes = activity.window.attributes.apply {
+                                            screenBrightness = nb
+                                        }
                                         currentBrightness = nb
                                         gestureValue = nb
                                     }
-
                                     GestureType.SEEK -> {
                                         // Horizontal drag -> seek preview
                                         val widthF = size.width.toFloat().coerceAtLeast(1f)
-                                        // map dx (since last event) to ms delta
                                         val fraction = dx / widthF
-                                        // map fraction to a reasonable ms delta relative to duration,
-                                        // larger duration => larger absolute delta per px
-                                        val baseWindow =
-                                            max(10_000L, duration / 4L) // base sensitivity
+                                        val baseWindow = max(10_000L, duration / 4L)
                                         val deltaMs = (fraction * baseWindow).roundToLong()
-                                        seekPreviewDeltaMs =
-                                            (seekPreviewDeltaMs + deltaMs).coerceIn(
-                                                -duration,
-                                                duration
-                                            )
-                                        seekPreviewPosition =
-                                            (player.currentPosition + seekPreviewDeltaMs).coerceIn(
-                                                0L,
-                                                max(0L, duration)
-                                            )
+                                        seekPreviewDeltaMs = (seekPreviewDeltaMs + deltaMs).coerceIn(-duration, duration)
+                                        seekPreviewPosition = (player.currentPosition + seekPreviewDeltaMs).coerceIn(0L, max(0L, duration))
                                     }
-
                                     else -> {}
                                 }
                                 change.consume()
@@ -308,13 +284,11 @@ fun VideoPlayerScreen(
                                         isSeekingDrag = false
                                         showSeekPreview = false
                                     }
-
                                     GestureType.BRIGHTNESS, GestureType.VOLUME -> {
                                         // hide overlay
                                         showGestureOverlay = false
                                         gestureValue = 0f
                                     }
-
                                     else -> {}
                                 }
                                 gestureType.value = null
@@ -348,11 +322,7 @@ fun VideoPlayerScreen(
                 }
             }
 
-            AnimatedVisibility(
-                visible = showBackwardIndicator,
-                enter = fadeIn(),
-                exit = fadeOut()
-            ) {
+            AnimatedVisibility(visible = showBackwardIndicator, enter = fadeIn(), exit = fadeOut()) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.CenterStart) {
                     Icon(
                         Icons.Filled.Replay10,
@@ -381,20 +351,13 @@ fun VideoPlayerScreen(
                                     Icons.AutoMirrored.Filled.VolumeUp,
                                     "${(gestureValue * 100).toInt()}%"
                                 )
-
                                 GestureType.BRIGHTNESS -> Pair(
                                     Icons.Filled.BrightnessHigh,
                                     "${(gestureValue * 100).toInt()}%"
                                 )
-
                                 else -> Pair(Icons.Filled.Info, "")
                             }
-                            Icon(
-                                icon,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(36.dp)
-                            )
+                            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(36.dp))
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(label, color = Color.White)
                         }
@@ -423,9 +386,9 @@ fun VideoPlayerScreen(
                 }
             }
 
-            // Controls overlay (top + center + bottom seek)
+            // Controls overlay (top + center + bottom seek) - Only show when not gesturing
             AnimatedVisibility(
-                visible = showControls,
+                visible = showControls && !showGestureOverlay && !showSeekPreview,
                 enter = fadeIn(tween(180)),
                 exit = fadeOut(tween(140))
             ) {
@@ -452,6 +415,7 @@ fun VideoPlayerScreen(
                         Text(
                             currentVideo?.title ?: "",
                             style = MaterialTheme.typography.titleMedium,
+                            color = Color.White,
                             maxLines = 1
                         )
                         Spacer(modifier = Modifier.weight(1f))
@@ -477,23 +441,28 @@ fun VideoPlayerScreen(
                             .align(Alignment.BottomCenter)
                             .padding(16.dp)
                     ) {
-
                         ActionRowAboveSeek(
                             repeatMode = repeatMode,
                             onToggleRepeat = onToggleRepeat,
                             onShowSpeed = { showSpeedSheet = true },
                             onRotate = {
                                 isLandscape = !isLandscape
-                                activity?.requestedOrientation =
-                                    if (isLandscape) ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+                                activity?.requestedOrientation = if (isLandscape)
+                                    ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                                else
+                                    ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
                             },
                             onToggleAudioOnly = {
                                 isAudioOnlyMode = !isAudioOnlyMode
                                 if (isAudioOnlyMode) onSwitchToAudio()
                             },
                             isAudioOnlyActive = isAudioOnlyMode,
+                            playbackSpeed = playbackSpeed,
+                            isLandscape = isLandscape,
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        Spacer(modifier = Modifier.height(8.dp))
 
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -516,10 +485,13 @@ fun VideoPlayerScreen(
                     }
                 }
             }
+
+            // Speed bottom sheet
             if (showSpeedSheet) {
                 SpeedBottomSheet(
                     initialSpeed = playbackSpeed,
-                    onDismiss = { showSpeedSheet = false }) { speed ->
+                    onDismiss = { showSpeedSheet = false }
+                ) { speed ->
                     playbackSpeed = speed
                     onSetPlaybackSpeed(speed)
                 }
@@ -527,19 +499,25 @@ fun VideoPlayerScreen(
         }
     }
 
+    // Back handler - Stop video and reset orientation
+    BackHandler {
+        // Reset to portrait
+        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
 
-    // Back handler
-    BackHandler { onBack() }
+        // Stop video if not in audio-only mode
+        if (!isAudioOnlyMode) {
+            player.pause()
+        }
+
+        onBack()
+    }
 }
 
 private fun formatMs(ms: Long): String {
-    // Use absolute value for formatting seek deltas, as ms might be negative.
     val absoluteMs = ms.absoluteValue
     if (absoluteMs <= 0) return "00:00"
 
     val totalSeconds = absoluteMs / 1000
-
-    // Check if the total duration is an hour or more (3600 seconds)
     val hasHours = totalSeconds >= 3600
 
     val hours = totalSeconds / 3600
@@ -547,13 +525,10 @@ private fun formatMs(ms: Long): String {
     val seconds = totalSeconds % 60
 
     return if (hasHours) {
-        // Format as H:MM:SS using Locale.US for consistent output
         String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
     } else {
-        // Format as MM:SS using Locale.US for consistent output
         String.format(Locale.US, "%02d:%02d", minutes, seconds)
     }
 }
-
 
 enum class GestureType { VOLUME, BRIGHTNESS, SEEK }

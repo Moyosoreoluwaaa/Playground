@@ -186,7 +186,7 @@ fun EnhancedAudioPlayerScreen(
 
                 Spacer(modifier = Modifier.height(40.dp))
 
-                // Enhanced Action Row with A-B Loop and Sleep Timer
+                // Enhanced Action Row - Pass playbackSpeed
                 EnhancedActionRow(
                     repeatMode = repeatMode,
                     onToggleRepeat = viewModel::toggleRepeatMode,
@@ -195,6 +195,7 @@ fun EnhancedAudioPlayerScreen(
                     onShowABLoop = { showABLoopSheet = true },
                     abLoopActive = abLoopState.isActive,
                     sleepTimerActive = sleepTimerRemaining > 0,
+                    playbackSpeed = playbackSpeed, // NEW
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -301,6 +302,7 @@ fun EnhancedAudioPlayerScreen(
     }
 }
 
+// AudioPlayerScreen.kt - Update EnhancedActionRow
 @Composable
 fun EnhancedActionRow(
     modifier: Modifier = Modifier,
@@ -311,6 +313,7 @@ fun EnhancedActionRow(
     onShowABLoop: () -> Unit,
     abLoopActive: Boolean,
     sleepTimerActive: Boolean,
+    playbackSpeed: Float, // NEW parameter
     actionBgColor: Color = MaterialTheme.colorScheme.surfaceVariant,
     activeColor: Color = MaterialTheme.colorScheme.primary
 ) {
@@ -331,11 +334,11 @@ fun EnhancedActionRow(
             contentDescription = "Repeat"
         )
 
-        // Speed
+        // Speed - Changed color when not 1.0x
         ActionIconButton(
             onClick = onShowSpeed,
             icon = Icons.Filled.Speed,
-            backgroundColor = actionBgColor,
+            backgroundColor = if (playbackSpeed != 1f) activeColor else actionBgColor,
             contentDescription = "Speed"
         )
 
