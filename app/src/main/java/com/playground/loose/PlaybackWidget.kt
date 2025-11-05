@@ -9,17 +9,24 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.RemoteViews
+import androidx.annotation.OptIn
+import androidx.media3.common.util.UnstableApi
 import com.playground.R
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.core.graphics.scale
+import androidx.core.net.toUri
 
 /**
  * Singleton object to update all widgets from the service
  */
+
+// FIX: Updated PlaybackWidget object to use service intents
 object PlaybackWidget {
+    @OptIn(UnstableApi::class)
     fun updateWidgets(
         context: Context,
         mediaId: Long,
@@ -38,34 +45,31 @@ object PlaybackWidget {
             views.setTextViewText(R.id.widget_title, title)
             views.setTextViewText(R.id.widget_artist, artist)
 
-            // Set play/pause icon
             views.setImageViewResource(
                 R.id.widget_play_pause,
                 if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
             )
 
-            // Load album art
             if (albumArtUri != null) {
                 loadAlbumArtAsync(context, albumArtUri, views, appWidgetManager, appWidgetId)
             } else {
                 views.setImageViewResource(R.id.widget_album_art, R.drawable.ic_music_note)
             }
 
-            // Set up button intents
+            // FIX: Use service intents instead of broadcast
             views.setOnClickPendingIntent(
                 R.id.widget_play_pause,
-                getPendingIntent(context, PlaybackWidgetReceiver.ACTION_PLAY_PAUSE)
+                getServicePendingIntent(context, MediaPlaybackService.ACTION_PLAY_PAUSE)
             )
             views.setOnClickPendingIntent(
                 R.id.widget_previous,
-                getPendingIntent(context, PlaybackWidgetReceiver.ACTION_PREVIOUS)
+                getServicePendingIntent(context, MediaPlaybackService.ACTION_PREV)
             )
             views.setOnClickPendingIntent(
                 R.id.widget_next,
-                getPendingIntent(context, PlaybackWidgetReceiver.ACTION_NEXT)
+                getServicePendingIntent(context, MediaPlaybackService.ACTION_NEXT)
             )
 
-            // Click on widget opens app
             val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             val launchPendingIntent = PendingIntent.getActivity(
                 context,
@@ -105,7 +109,7 @@ object PlaybackWidget {
 
     private fun loadBitmap(context: Context, uriString: String): Bitmap? {
         return try {
-            val uri = Uri.parse(uriString)
+            val uri = uriString.toUri()
 
             if (uri.scheme == "content" || uri.scheme == "file") {
                 context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -126,14 +130,16 @@ object PlaybackWidget {
         val ratio = maxSize.toFloat() / maxOf(bitmap.width, bitmap.height)
         val width = (bitmap.width * ratio).toInt()
         val height = (bitmap.height * ratio).toInt()
-        return Bitmap.createScaledBitmap(bitmap, width, height, true)
+        return bitmap.scale(width, height)
     }
 
-    private fun getPendingIntent(context: Context, action: String): PendingIntent {
-        val intent = Intent(context, PlaybackWidgetReceiver::class.java).apply {
+    // FIX: Create service intent helper
+    @UnstableApi
+    private fun getServicePendingIntent(context: Context, action: String): PendingIntent {
+        val intent = Intent(context, MediaPlaybackService::class.java).apply {
             this.action = action
         }
-        return PendingIntent.getBroadcast(
+        return PendingIntent.getService(
             context,
             action.hashCode(),
             intent,

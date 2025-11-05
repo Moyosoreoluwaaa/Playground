@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -26,12 +27,9 @@ class MediaPlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
     private lateinit var player: ExoPlayer
     private val channelId = "loose_media_playback"
-
-    // Coroutine scope for widget updates
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     companion object {
-        // Actions for widget and service intents
         const val ACTION_PLAY_PAUSE = "com.playground.loose.ACTION_PLAY_PAUSE"
         const val ACTION_NEXT = "com.playground.loose.ACTION_NEXT"
         const val ACTION_PREV = "com.playground.loose.ACTION_PREV"
@@ -52,19 +50,15 @@ class MediaPlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
 
-        // Create MediaSession with proper configuration
         mediaSession = MediaSession.Builder(this, player)
             .setCallback(MediaSessionCallback())
             .setSessionActivity(createSessionActivityIntent())
             .build()
 
-        // Setup player listener for notification AND WIDGET updates
         setupPlayerListener()
     }
 
-    /**
-     * Handle incoming intents from the widget.
-     */
+    // MediaPlaybackService.kt - Update onStartCommand
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_PLAY_PAUSE -> {
@@ -76,18 +70,62 @@ class MediaPlaybackService : MediaSessionService() {
                     }
                 }
             }
-            ACTION_NEXT -> mediaSession?.player?.seekToNextMediaItem()
-            ACTION_PREV -> mediaSession?.player?.seekToPreviousMediaItem()
+            ACTION_NEXT -> {
+                Log.d("MediaService", "⏭️ ACTION_NEXT received")
+                mediaSession?.player?.let {
+                    // Check if there's a next item
+                    if (it.hasNextMediaItem()) {
+                        it.seekToNextMediaItem()
+                    } else if (it.repeatMode == Player.REPEAT_MODE_ALL) {
+                        it.seekTo(0, 0) // Go to first item
+                    }
+                }
+            }
+            ACTION_PREV -> {
+                Log.d("MediaService", "⏮️ ACTION_PREV received")
+                mediaSession?.player?.let {
+                    // If current position > 3 seconds, restart current track
+                    if (it.currentPosition > 3000) {
+                        it.seekTo(0)
+                    } else {
+                        // Otherwise, go to previous track
+                        if (it.hasPreviousMediaItem()) {
+                            it.seekToPreviousMediaItem()
+                        } else if (it.repeatMode == Player.REPEAT_MODE_ALL) {
+                            it.seekTo(it.mediaItemCount - 1, 0) // Go to last item
+                        }
+                    }
+                }
+            }
         }
-        // Let the system know the service should continue running
-        // in the background, as started by the base class.
         return super.onStartCommand(intent, flags, startId)
     }
 
+//    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+//        when (intent?.action) {
+//            ACTION_PLAY_PAUSE -> {
+//                mediaSession?.player?.let {
+//                    if (it.isPlaying) {
+//                        it.pause()
+//                    } else {
+//                        it.play()
+//                    }
+//                }
+//            }
+//            ACTION_NEXT -> {
+//                Log.d("MediaService", "⏭️ ACTION_NEXT received")
+//                mediaSession?.player?.seekToNextMediaItem()
+//            }
+//            ACTION_PREV -> {
+//                Log.d("MediaService", "⏮️ ACTION_PREV received")
+//                mediaSession?.player?.seekToPreviousMediaItem()
+//            }
+//        }
+//        return super.onStartCommand(intent, flags, startId)
+//    }
+
     private fun createSessionActivityIntent(): PendingIntent {
         val intent = packageManager.getLaunchIntentForPackage(packageName)?.apply {
-            // Add a flag or extra to navigate to the player screen if needed
-            // e.g., intent.putExtra("NAVIGATE_TO", "PLAYER")
             flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
 
@@ -112,25 +150,19 @@ class MediaPlaybackService : MediaSessionService() {
                         }
                     }
                 }
-                // Update widget on any state change
                 updateAllWidgets()
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
-                // Update widget when play/pause state changes
                 updateAllWidgets()
             }
 
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                // Update widget when track changes
                 updateAllWidgets()
             }
         })
     }
 
-    /**
-     * Gathers current player state and triggers a widget update.
-     */
     private fun updateAllWidgets() {
         val player = mediaSession?.player ?: return
         val mediaItem = player.currentMediaItem ?: return
@@ -138,20 +170,11 @@ class MediaPlaybackService : MediaSessionService() {
 
         val title = metadata.title?.toString() ?: "Unknown Title"
         val artist = metadata.artist?.toString() ?: "Unknown Artist"
-        // Use the URI from localConfiguration if available, as set in onAddMediaItems
         val artUri = mediaItem.localConfiguration?.uri?.toString()
             ?: metadata.artworkUri?.toString() ?: ""
         val isPlaying = player.isPlaying
+        val mediaId = mediaItem.mediaId.toLongOrNull() ?: 0L
 
-        // The MediaItem ID might be the content URI string, or you might need
-        // to get the ID from your ViewModel/Repository when you *add* the item.
-        // For simplicity, we'll use a hashcode or 0.
-        // A better approach is to have your ViewModel store the current AudioItem
-        // and have the service read from it, or pass the AudioItem.id
-        // via RequestMetadata when building the MediaItem.
-        val mediaId = mediaItem.mediaId.toLongOrNull() ?: 0L // Assuming mediaId is the long ID
-
-        // Update widgets on a background thread
         serviceScope.launch(Dispatchers.IO) {
             PlaybackWidget.updateWidgets(
                 context = this@MediaPlaybackService,
@@ -163,7 +186,6 @@ class MediaPlaybackService : MediaSessionService() {
             )
         }
     }
-
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         return mediaSession
@@ -203,6 +225,7 @@ class MediaPlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 
+    // MediaPlaybackService.kt - Update MediaSessionCallback
     private inner class MediaSessionCallback : MediaSession.Callback {
 
         override fun onAddMediaItems(
@@ -210,19 +233,63 @@ class MediaPlaybackService : MediaSessionService() {
             controller: MediaSession.ControllerInfo,
             mediaItems: MutableList<MediaItem>
         ): ListenableFuture<MutableList<MediaItem>> {
-            // CRITICAL FIX: Keep the original URI instead of replacing with mediaId
             val resolved = mediaItems.map { item ->
                 if (item.localConfiguration?.uri != null) {
-                    // Already has URI from PlayerViewModel, use as-is
                     item
                 } else {
-                    // Fallback to using requestMetadata if localConfig is missing
                     item.buildUpon()
                         .setUri(item.requestMetadata.mediaUri)
                         .build()
                 }
             }.toMutableList()
             return Futures.immediateFuture(resolved)
+        }
+
+        override fun onMediaButtonEvent(
+            session: MediaSession,
+            controllerInfo: MediaSession.ControllerInfo,
+            intent: Intent
+        ): Boolean {
+            val keyEvent = intent.getParcelableExtra<android.view.KeyEvent>(Intent.EXTRA_KEY_EVENT)
+
+            if (keyEvent?.action == android.view.KeyEvent.ACTION_DOWN) {
+                when (keyEvent.keyCode) {
+                    android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
+                        if (player.isPlaying) player.pause() else player.play()
+                        return true
+                    }
+                    android.view.KeyEvent.KEYCODE_MEDIA_PLAY -> {
+                        player.play()
+                        return true
+                    }
+                    android.view.KeyEvent.KEYCODE_MEDIA_PAUSE -> {
+                        player.pause()
+                        return true
+                    }
+                    android.view.KeyEvent.KEYCODE_MEDIA_NEXT -> {
+                        if (player.hasNextMediaItem()) {
+                            player.seekToNextMediaItem()
+                        } else if (player.repeatMode == Player.REPEAT_MODE_ALL) {
+                            player.seekTo(0, 0)
+                        }
+                        return true
+                    }
+                    android.view.KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
+                        if (player.currentPosition > 3000) {
+                            player.seekTo(0)
+                        } else {
+                            if (player.hasPreviousMediaItem()) {
+                                player.seekToPreviousMediaItem()
+                            } else if (player.repeatMode == Player.REPEAT_MODE_ALL) {
+                                player.seekTo(player.mediaItemCount - 1, 0)
+                            }
+                        }
+                        return true
+                    }
+                }
+            }
+
+            return super.onMediaButtonEvent(session, controllerInfo, intent)
         }
     }
 }

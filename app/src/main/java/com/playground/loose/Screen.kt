@@ -12,7 +12,7 @@ import androidx.navigation.compose.rememberNavController
 import com.loose.mediaplayer.ui.screen.VideoLibraryScreen
 import com.loose.mediaplayer.ui.viewmodel.PlayerViewModel
 import com.playground.loose.AudioLibraryScreen
-import com.playground.loose.AudioPlayerScreen
+import com.playground.loose.EnhancedAudioPlayerScreen
 import com.playground.loose.VideoPlayerScreen
 
 sealed class Screen(val route: String, val title: String) {
@@ -82,20 +82,8 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
 
         // 🎧 Audio Player
         composable(Screen.AudioPlayer.route) {
-            AudioPlayerScreen(
-                currentAudio = currentAudio,
-                isPlaying = isPlaying,
-                currentPosition = currentPosition,
-                duration = duration,
-                repeatMode = repeatMode,
-                onPlayPause = viewModel::playPause,
-                onNext = viewModel::playNext,
-                onPrevious = viewModel::playPrevious,
-                onSeek = viewModel::seekTo,
-                onSkipForward = viewModel::skipForward,
-                onSkipBackward = viewModel::skipBackward,
-                onToggleRepeat = viewModel::toggleRepeatMode,
-                onSetPlaybackSpeed = viewModel::setPlaybackSpeed,
+            EnhancedAudioPlayerScreen (
+                viewModel = viewModel,
                 onBack = { navController.popBackStack() }
             )
         }

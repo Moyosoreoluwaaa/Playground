@@ -9,6 +9,7 @@ import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Log
 import android.widget.RemoteViews
 import androidx.annotation.OptIn
 import androidx.core.net.toUri
@@ -24,45 +25,6 @@ import java.net.URL
 import androidx.core.graphics.scale
 
 class PlaybackWidgetReceiver : AppWidgetProvider() {
-
-    override fun onUpdate(
-        context: Context,
-        appWidgetManager: AppWidgetManager,
-        appWidgetIds: IntArray
-    ) {
-        for (appWidgetId in appWidgetIds) {
-            updateWidget(context, appWidgetManager, appWidgetId)
-        }
-    }
-
-    @OptIn(UnstableApi::class)
-    override fun onReceive(context: Context, intent: Intent) {
-        super.onReceive(context, intent)
-
-        when (intent.action) {
-            ACTION_PLAY_PAUSE -> {
-                context.startService(
-                    Intent(context, MediaPlaybackService::class.java).apply {
-                        action = MediaPlaybackService.ACTION_PLAY_PAUSE
-                    }
-                )
-            }
-            ACTION_NEXT -> {
-                context.startService(
-                    Intent(context, MediaPlaybackService::class.java).apply {
-                        action = MediaPlaybackService.ACTION_NEXT
-                    }
-                )
-            }
-            ACTION_PREVIOUS -> {
-                context.startService(
-                    Intent(context, MediaPlaybackService::class.java).apply {
-                        action = MediaPlaybackService.ACTION_PREV
-                    }
-                )
-            }
-        }
-    }
 
     companion object {
         const val ACTION_PLAY_PAUSE = "com.playground.loose.widget.PLAY_PAUSE"
@@ -80,39 +42,35 @@ class PlaybackWidgetReceiver : AppWidgetProvider() {
         ) {
             val views = RemoteViews(context.packageName, R.layout.widget_playback)
 
-            // Set text
             views.setTextViewText(R.id.widget_title, title)
             views.setTextViewText(R.id.widget_artist, artist)
 
-            // Set album art (default icon if no URI)
             if (albumArtUri != null) {
-                // Load album art asynchronously
                 loadAlbumArt(context, albumArtUri, views, appWidgetManager, appWidgetId)
             } else {
                 views.setImageViewResource(R.id.widget_album_art, R.drawable.ic_music_note)
             }
 
-            // Set play/pause icon
             views.setImageViewResource(
                 R.id.widget_play_pause,
                 if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play
             )
 
-            // Set up intents for buttons
+            // FIX: Setup proper intents for all buttons
             views.setOnClickPendingIntent(
                 R.id.widget_play_pause,
-                getPendingIntent(context, ACTION_PLAY_PAUSE)
+                createServicePendingIntent(context, ACTION_PLAY_PAUSE)
             )
             views.setOnClickPendingIntent(
                 R.id.widget_previous,
-                getPendingIntent(context, ACTION_PREVIOUS)
+                createServicePendingIntent(context, ACTION_PREVIOUS)
             )
             views.setOnClickPendingIntent(
                 R.id.widget_next,
-                getPendingIntent(context, ACTION_NEXT)
+                createServicePendingIntent(context, ACTION_NEXT)
             )
 
-            // Click on widget opens app
+            // Widget container launches app
             val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
             val launchPendingIntent = PendingIntent.getActivity(
                 context,
@@ -123,6 +81,26 @@ class PlaybackWidgetReceiver : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_container, launchPendingIntent)
 
             appWidgetManager.updateAppWidget(appWidgetId, views)
+        }
+
+        // FIX: Create service intent instead of broadcast intent
+        @OptIn(UnstableApi::class)
+        private fun createServicePendingIntent(context: Context, action: String): PendingIntent {
+            val intent = Intent(context, MediaPlaybackService::class.java).apply {
+                this.action = when (action) {
+                    ACTION_PLAY_PAUSE -> MediaPlaybackService.ACTION_PLAY_PAUSE
+                    ACTION_NEXT -> MediaPlaybackService.ACTION_NEXT
+                    ACTION_PREVIOUS -> MediaPlaybackService.ACTION_PREV
+                    else -> action
+                }
+            }
+
+            return PendingIntent.getService(
+                context,
+                action.hashCode(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
         }
 
         private fun loadAlbumArt(
@@ -157,16 +135,13 @@ class PlaybackWidgetReceiver : AppWidgetProvider() {
             return try {
                 val uri = uriString.toUri()
 
-                // Try loading from content resolver first (for local files)
                 if (uri.scheme == "content" || uri.scheme == "file") {
                     context.contentResolver.openInputStream(uri)?.use { stream ->
                         BitmapFactory.decodeStream(stream)?.let { bitmap ->
-                            // Scale down for widget
                             scaleBitmap(bitmap, 200)
                         }
                     }
                 } else if (uri.scheme == "http" || uri.scheme == "https") {
-                    // Load from network
                     val url = URL(uriString)
                     val connection = url.openConnection() as HttpURLConnection
                     connection.doInput = true
@@ -190,17 +165,49 @@ class PlaybackWidgetReceiver : AppWidgetProvider() {
             val height = (bitmap.height * ratio).toInt()
             return bitmap.scale(width, height)
         }
+    }
 
-        private fun getPendingIntent(context: Context, action: String): PendingIntent {
-            val intent = Intent(context, PlaybackWidgetReceiver::class.java).apply {
-                this.action = action
+    override fun onUpdate(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetIds: IntArray
+    ) {
+        for (appWidgetId in appWidgetIds) {
+            updateWidget(context, appWidgetManager, appWidgetId)
+        }
+    }
+
+    @OptIn(UnstableApi::class)
+    override fun onReceive(context: Context, intent: Intent) {
+        super.onReceive(context, intent)
+
+        Log.d("WidgetReceiver", "📱 Widget received action: ${intent.action}")
+
+        when (intent.action) {
+            ACTION_PLAY_PAUSE -> {
+                Log.d("WidgetReceiver", "⏯️ Play/Pause clicked")
+                context.startService(
+                    Intent(context, MediaPlaybackService::class.java).apply {
+                        action = MediaPlaybackService.ACTION_PLAY_PAUSE
+                    }
+                )
             }
-            return PendingIntent.getBroadcast(
-                context,
-                action.hashCode(),
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
+            ACTION_NEXT -> {
+                Log.d("WidgetReceiver", "⏭️ Next clicked")
+                context.startService(
+                    Intent(context, MediaPlaybackService::class.java).apply {
+                        action = MediaPlaybackService.ACTION_NEXT
+                    }
+                )
+            }
+            ACTION_PREVIOUS -> {
+                Log.d("WidgetReceiver", "⏮️ Previous clicked")
+                context.startService(
+                    Intent(context, MediaPlaybackService::class.java).apply {
+                        action = MediaPlaybackService.ACTION_PREV
+                    }
+                )
+            }
         }
     }
 }
