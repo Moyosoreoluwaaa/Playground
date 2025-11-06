@@ -30,7 +30,6 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.VideoLibrary
@@ -70,14 +69,186 @@ import androidx.compose.ui.unit.sp
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
-import com.loose.mediaplayer.Screen
-import com.loose.mediaplayer.ui.viewmodel.PlayerViewModel
 import java.util.Locale
 
-// NOTE: AudioItem, AudioPlaylist, ViewMode, SortOption, MiniPlayer, etc., are assumed to be imported from common files.
-
-// MiniPlayer placeholder height (if MiniPlayer.kt is not fully visible)
 private val MINI_PLAYER_HEIGHT = 72.dp
+
+@androidx.annotation.OptIn(UnstableApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AudioLibraryScreen(
+    audioViewModel: AudioPlayerViewModel,
+    currentAudio: AudioItem?,
+    currentVideo: VideoItem? = null,
+    isAudioMode: Boolean,
+    isPlaying: Boolean,
+    onNavigateToPlayer: () -> Unit,
+    navController: NavController
+) {
+    val audioItems by audioViewModel.audioItems.collectAsState()
+    val audioPlaylists by audioViewModel.audioPlaylists.collectAsState()
+    val viewMode by audioViewModel.audioViewMode.collectAsState()
+    val sortOption by audioViewModel.audioSortOption.collectAsState()
+
+    // Screen State
+    var selectedTab by remember { mutableStateOf(AudioLibraryTab.LIBRARY) }
+    var showCreateSheet by remember { mutableStateOf(false) }
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchActive by remember { mutableStateOf(false) }
+    var activePlaylist by remember { mutableStateOf<AudioPlaylist?>(null) }
+
+    val searchFocusRequester = remember { FocusRequester() }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Determine the content to show (Drill-down OR Tabs)
+    when {
+        // State 1: Playlist Tracks Drill-down View
+        activePlaylist != null -> {
+            PlaylistTrackListScreen(
+                playlist = activePlaylist!!,
+                allAudioItems = audioItems,
+                currentAudioId = currentAudio?.id,
+                onAudioClick = { audio ->
+                    val playlistItems = audioItems.filter { it.id in activePlaylist!!.audioIds }
+                    val startIndex = playlistItems.indexOf(audio)
+                    audioViewModel.playSelectedAudio(playlistItems, startIndex)
+                    onNavigateToPlayer()
+                },
+                onBack = { activePlaylist = null }
+            )
+        }
+
+        // State 2: Main Tabs (Library/Playlists)
+        else -> {
+            Scaffold(
+                topBar = {
+                    Column {
+                        if (selectedTab == AudioLibraryTab.LIBRARY) {
+                            AudioLibraryTopAppBar(
+                                searchFocusRequester = searchFocusRequester,
+                                searchQuery = searchQuery,
+                                isSearchActive = isSearchActive,
+                                viewMode = viewMode,
+                                sortOption = sortOption,
+                                onViewModeChange = audioViewModel::setAudioViewMode,
+                                onSortChange = audioViewModel::setAudioSort,
+                                onSearchQueryChange = { searchQuery = it },
+                                onSearchToggle = { isActive ->
+                                    isSearchActive = isActive
+                                    if (!isActive) searchQuery = ""
+                                }
+                            )
+                        } else {
+                            TopAppBar(title = { Text("Playlists") })
+                        }
+
+                        // Tab Row
+                        TabRow(selectedTabIndex = selectedTab.ordinal) {
+                            AudioLibraryTab.entries.forEach { tab ->
+                                Tab(
+                                    selected = selectedTab == tab,
+                                    onClick = { selectedTab = tab },
+                                    text = { Text(tab.title) }
+                                )
+                            }
+                        }
+                    }
+                },
+                bottomBar = {
+                    Column {
+                        // MiniPlayer
+                        MiniPlayer(
+                            currentAudio = currentAudio,
+                            currentVideo = currentVideo,
+                            isPlaying = isPlaying,
+                            isAudioMode = isAudioMode,
+                            onPlayPause = audioViewModel::playPause,
+                            onShowQueue = { /* No-op for now */ },
+                            onNext = audioViewModel::playNext,
+                            onClick = onNavigateToPlayer
+                        )
+
+                        NavigationBar {
+                            NavigationBarItem(
+                                icon = { Icon(Icons.Filled.MusicNote, null) },
+                                label = { Text("Audio") },
+                                selected = navController.currentDestination?.route == Screen.AudioLibrary.route,
+                                onClick = {
+                                    navController.navigate(Screen.AudioLibrary.route) {
+                                        popUpTo(Screen.AudioLibrary.route)
+                                        launchSingleTop = true
+                                    }
+                                }
+                            )
+                            NavigationBarItem(
+                                icon = { Icon(Icons.Filled.VideoLibrary, null) },
+                                label = { Text("Video") },
+                                selected = navController.currentDestination?.route == Screen.VideoLibrary.route,
+                                onClick = {
+                                    navController.navigate(Screen.VideoLibrary.route) {
+                                        popUpTo(Screen.VideoLibrary.route)
+                                        launchSingleTop = true
+                                    }
+                                }
+                            )
+                        }
+                    }
+                },
+                floatingActionButton = {
+                    if (selectedTab == AudioLibraryTab.PLAYLISTS) {
+                        FloatingActionButton(onClick = { showCreateSheet = true }) {
+                            Icon(Icons.AutoMirrored.Filled.QueueMusic, "Create New Playlist")
+                        }
+                    }
+                }
+            ) { paddingValues ->
+                when (selectedTab) {
+                    AudioLibraryTab.LIBRARY -> {
+                        AudioLibraryContent(
+                            audioItems = audioItems,
+                            currentAudioId = currentAudio?.id,
+                            viewMode = viewMode,
+                            sortOption = sortOption,
+                            searchQuery = searchQuery,
+                            onAudioClick = { audio ->
+                                audioViewModel.playAudio(audio)
+                                onNavigateToPlayer()
+                            },
+                            modifier = Modifier.padding(paddingValues)
+                        )
+                    }
+
+                    AudioLibraryTab.PLAYLISTS -> {
+                        AudioPlaylistContent(
+                            playlists = audioPlaylists,
+                            onPlaylistClick = { playlist ->
+                                activePlaylist = playlist
+                            },
+                            modifier = Modifier.padding(paddingValues)
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    // Bottom Sheet for Playlist Creation
+    if (showCreateSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showCreateSheet = false },
+            sheetState = sheetState
+        ) {
+            CreatePlaylistBottomSheet(
+                audioItems = audioItems,
+                onCreatePlaylist = { name, ids ->
+                    audioViewModel.createNewPlaylist(name, ids)
+                    showCreateSheet = false
+                },
+                onDismiss = { showCreateSheet = false }
+            )
+        }
+    }
+}
 
 /**
  * =================================================================
@@ -327,190 +498,6 @@ fun MiniPlayer(
                     contentDescription = "Next"
                 )
             }
-        }
-    }
-}
-
-@androidx.annotation.OptIn(UnstableApi::class)
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun AudioLibraryScreen( // This is the new entry point
-    viewModel: PlayerViewModel,
-    onNavigateToPlayer: () -> Unit,
-    navController: NavController
-) {
-    val audioItems by viewModel.audioItems.collectAsState()
-    val audioPlaylists by viewModel.audioPlaylists.collectAsState()
-    val viewMode by viewModel.audioViewMode.collectAsState()
-    val sortOption by viewModel.audioSortOption.collectAsState()
-    val currentAudio by viewModel.currentAudioItem.collectAsState()
-    val currentVideo by viewModel.currentVideoItem.collectAsState() // Fetch Video for MiniPlayer
-    val isPlaying by viewModel.isPlaying.collectAsState()
-    val isAudioMode by viewModel.isAudioMode.collectAsState()
-
-    // Screen State
-    var selectedTab by remember { mutableStateOf(AudioLibraryTab.LIBRARY) }
-    var showCreateSheet by remember { mutableStateOf(false) }
-    var searchQuery by remember { mutableStateOf("") }
-    var isSearchActive by remember { mutableStateOf(false) }
-    var activePlaylist by remember { mutableStateOf<AudioPlaylist?>(null) } // NEW for drill-down
-
-    // NEW: Focus Requester for search TextField
-    val searchFocusRequester = remember { FocusRequester() }
-
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    // Check for media in MiniPlayer
-    val currentMediaId = if (isAudioMode) currentAudio?.id else currentVideo?.id
-
-    // Determine the content to show (Drill-down OR Tabs)
-    when {
-        // State 1: Playlist Tracks Drill-down View
-        activePlaylist != null -> {
-            PlaylistTrackListScreen(
-                playlist = activePlaylist!!,
-                allAudioItems = audioItems,
-                currentAudioId = currentAudio?.id,
-                onAudioClick = { audio ->
-                    // Play the selected song within the playlist context (custom queue)
-                    val playlistItems = audioItems.filter { it.id in activePlaylist!!.audioIds }
-                    val startIndex = playlistItems.indexOf(audio)
-                    viewModel.playSelectedAudio(playlistItems, startIndex)
-                    onNavigateToPlayer()
-                },
-                onBack = { activePlaylist = null } // Go back to playlist list
-            )
-        }
-
-        // State 2: Main Tabs (Library/Playlists)
-        else -> {
-            Scaffold(
-                topBar = {
-                    Column {
-                        if (selectedTab == AudioLibraryTab.LIBRARY) {
-                            AudioLibraryTopAppBar(
-                                searchFocusRequester = searchFocusRequester, // Pass FocusRequester
-                                searchQuery = searchQuery,
-                                isSearchActive = isSearchActive,
-                                viewMode = viewMode,
-                                sortOption = sortOption,
-                                onViewModeChange = viewModel::setAudioViewMode,
-                                onSortChange = viewModel::setAudioSort,
-                                onSearchQueryChange = { searchQuery = it },
-                                onSearchToggle = { isActive ->
-                                    isSearchActive = isActive
-                                    if (!isActive) searchQuery = "" // Clear on deactivate
-                                }
-                            )
-                        } else {
-                            TopAppBar(title = { Text("Playlists") })
-                        }
-
-                        // Tab Row
-                        TabRow(selectedTabIndex = selectedTab.ordinal) {
-                            AudioLibraryTab.entries.forEach { tab ->
-                                Tab(
-                                    selected = selectedTab == tab,
-                                    onClick = { selectedTab = tab },
-                                    text = { Text(tab.title) }
-                                )
-                            }
-                        }
-                    }
-                },
-                bottomBar = { // Re-integrated MiniPlayer and NavigationBar
-                    Column {
-                        // MiniPlayer is displayed only if a media item is present
-                        MiniPlayer(
-                            currentAudio = currentAudio,
-                            currentVideo = currentVideo,
-                            isPlaying = isPlaying,
-                            isAudioMode = isAudioMode,
-                            onPlayPause = viewModel::playPause,
-                            onShowQueue = { /* No-op for now */ },
-                            onNext = viewModel::playNext,
-                            onClick = onNavigateToPlayer
-                        )
-
-                        NavigationBar {
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Filled.MusicNote, null) },
-                                label = { Text("Audio") },
-                                selected = navController.currentDestination?.route == Screen.AudioLibrary.route,
-                                onClick = {
-                                    navController.navigate(Screen.AudioLibrary.route) {
-                                        popUpTo(Screen.AudioLibrary.route)
-                                        launchSingleTop = true
-                                    }
-                                }
-                            )
-                            NavigationBarItem(
-                                icon = { Icon(Icons.Filled.VideoLibrary, null) },
-                                label = { Text("Video") },
-                                selected = navController.currentDestination?.route == Screen.VideoLibrary.route,
-                                onClick = {
-                                    navController.navigate(Screen.VideoLibrary.route) {
-                                        popUpTo(Screen.VideoLibrary.route)
-                                        launchSingleTop = true
-                                    }
-                                }
-                            )
-                        }
-                    }
-                },
-                floatingActionButton = {
-                    if (selectedTab == AudioLibraryTab.PLAYLISTS) {
-                        FloatingActionButton(onClick = { showCreateSheet = true }) {
-                            Icon(Icons.Filled.QueueMusic, "Create New Playlist")
-                        }
-                    }
-                }
-            ) { paddingValues ->
-                when (selectedTab) {
-                    AudioLibraryTab.LIBRARY -> {
-                        AudioLibraryContent(
-                            audioItems = audioItems,
-                            currentAudioId = currentAudio?.id,
-                            viewMode = viewMode,
-                            sortOption = sortOption,
-                            searchQuery = searchQuery,
-                            onAudioClick = { audio ->
-                                viewModel.playAudio(audio)
-                                onNavigateToPlayer()
-                            },
-                            modifier = Modifier.padding(paddingValues)
-                        )
-                    }
-
-                    AudioLibraryTab.PLAYLISTS -> {
-                        AudioPlaylistContent(
-                            playlists = audioPlaylists,
-                            onPlaylistClick = { playlist ->
-                                activePlaylist = playlist
-                            }, // Drill down
-                            modifier = Modifier.padding(paddingValues)
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-
-    // Bottom Sheet for Playlist Creation (always shown over main content)
-    if (showCreateSheet) {
-        ModalBottomSheet(
-            onDismissRequest = { showCreateSheet = false },
-            sheetState = sheetState
-        ) {
-            CreatePlaylistBottomSheet(
-                audioItems = audioItems,
-                onCreatePlaylist = { name, ids ->
-                    viewModel.createNewPlaylist(name, ids)
-                    showCreateSheet = false
-                },
-                onDismiss = { showCreateSheet = false }
-            )
         }
     }
 }

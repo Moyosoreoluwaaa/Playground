@@ -1,7 +1,6 @@
 package com.playground
 
 import android.os.Bundle
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -9,18 +8,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import com.playground.cart.MediaContentType
-import com.playground.cart.SocialChatUpdate
-import com.playground.cart.SocialChatsScreenLayout
-import com.playground.cart.SocialChatsUiState
-import com.playground.cart.SocialSticker
-import com.playground.lamme.LammeTheme
-import com.playground.lamme.MainAODScreen
-import com.playground.ui.theme.PlaygroundTheme
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
-import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
@@ -28,7 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import com.loose.mediaplayer.LooseApp
+import com.playground.loose.LooseApp
 import com.playground.ui.theme.LooseTheme
 
 class MainActivity : ComponentActivity() {

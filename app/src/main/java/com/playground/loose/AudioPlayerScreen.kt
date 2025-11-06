@@ -4,49 +4,14 @@ import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccessTime
-import androidx.compose.material.icons.filled.Bedtime
-import androidx.compose.material.icons.filled.BedtimeOff
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.RepeatOn
-import androidx.compose.material.icons.filled.RepeatOne
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.VideoLibrary
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,26 +22,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.times
 import androidx.media3.common.util.UnstableApi
-import com.loose.mediaplayer.ui.viewmodel.ABLoopState
-import com.loose.mediaplayer.ui.viewmodel.PlayerViewModel
+
 
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EnhancedAudioPlayerScreen(
-    viewModel: PlayerViewModel,
+    audioViewModel: AudioPlayerViewModel,
+    videoViewModel: VideoPlayerViewModel,
+    isVideoAsAudioMode: Boolean,
+    currentVideo: VideoItem?,
     onBack: () -> Unit,
-    onNavigateToVideoPlayer: () -> Unit = {}  // NEW: Add navigation callback
+    onNavigateToVideoPlayer: () -> Unit = {}
 ) {
-    val currentAudio by viewModel.currentAudioItem.collectAsState()
-    val currentVideo by viewModel.currentVideoItem.collectAsState()
-    val isPlaying by viewModel.isPlaying.collectAsState()
-    val currentPosition by viewModel.currentPosition.collectAsState()
-    val duration by viewModel.duration.collectAsState()
-    val repeatMode by viewModel.repeatMode.collectAsState()
-    val abLoopState by viewModel.abLoopState.collectAsState()
-    val sleepTimerRemaining by viewModel.sleepTimerRemaining.collectAsState()
-    val isVideoAsAudioMode by viewModel.isVideoAsAudioMode.collectAsState()
+    val currentAudio by audioViewModel.currentAudioItem.collectAsState()
+    val isPlaying by audioViewModel.isPlaying.collectAsState()
+    val currentPosition by audioViewModel.currentPosition.collectAsState()
+    val duration by audioViewModel.duration.collectAsState()
+    val repeatMode by audioViewModel.repeatMode.collectAsState()
+    val abLoopState by audioViewModel.abLoopState.collectAsState()
+    val sleepTimerRemaining by audioViewModel.sleepTimerRemaining.collectAsState()
+    val playbackSpeed by audioViewModel.playbackSpeed.collectAsState()
 
     val context = LocalContext.current
 
@@ -86,19 +52,17 @@ fun EnhancedAudioPlayerScreen(
         Log.d("AudioPlayerScreen", "isVideoAsAudioMode: $isVideoAsAudioMode")
         Log.d("AudioPlayerScreen", "currentVideo: ${currentVideo?.title}")
         Log.d("AudioPlayerScreen", "currentAudio: ${currentAudio?.title}")
-        Log.d("AudioPlayerScreen", "onNavigateToVideoPlayer callback: $onNavigateToVideoPlayer")
     }
 
     var bgColors by remember { mutableStateOf(listOf(Color(0xFF121212), Color(0xFF000000))) }
     var showSpeedSheet by remember { mutableStateOf(false) }
     var showSleepTimerSheet by remember { mutableStateOf(false) }
     var showABLoopSheet by remember { mutableStateOf(false) }
-    var playbackSpeed by remember { mutableFloatStateOf(1f) }
 
-    // FIX: Get the correct title and artwork based on mode
+    // Get the correct title and artwork based on mode
     val displayTitle = remember(isVideoAsAudioMode, currentVideo, currentAudio) {
         if (isVideoAsAudioMode && currentVideo != null) {
-            currentVideo!!.title
+            currentVideo.title
         } else currentAudio?.title ?: "No track"
     }
 
@@ -110,10 +74,10 @@ fun EnhancedAudioPlayerScreen(
         if (isVideoAsAudioMode) null else currentAudio?.album
     }
 
-    // FIX: Extract album art URI from correct source
+    // Extract album art URI from correct source
     val albumArtUri = remember(isVideoAsAudioMode, currentVideo, currentAudio) {
         if (isVideoAsAudioMode && currentVideo != null) {
-            currentVideo!!.thumbnailUri
+            currentVideo.thumbnailUri
         } else {
             currentAudio?.albumArtUri
         }
@@ -141,7 +105,7 @@ fun EnhancedAudioPlayerScreen(
                 .padding(paddingValues)
                 .padding(20.dp)
         ) {
-            // Top bar with back button and return to video button
+            // Top bar with back button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Start,
@@ -197,7 +161,7 @@ fun EnhancedAudioPlayerScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // FIX: Track Info - Display correct info based on what's actually playing
+                // Track Info
                 Text(
                     text = displayTitle,
                     color = Color.White,
@@ -207,14 +171,12 @@ fun EnhancedAudioPlayerScreen(
                 )
 
                 if (isVideoAsAudioMode) {
-                    // Show "Video (Audio Only)" label for videos
                     Text(
                         text = "Video (Audio Only)",
                         color = Color.White.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodyMedium
                     )
                 } else {
-                    // Show artist and album for regular audio
                     displayArtist?.let {
                         Text(
                             text = it,
@@ -233,10 +195,10 @@ fun EnhancedAudioPlayerScreen(
 
                 Spacer(modifier = Modifier.height(40.dp))
 
-                // Enhanced Action Row - Now includes Video Mode button when applicable
+                // Enhanced Action Row
                 EnhancedActionRow(
                     repeatMode = repeatMode,
-                    onToggleRepeat = viewModel::toggleRepeatMode,
+                    onToggleRepeat = audioViewModel::toggleRepeatMode,
                     onShowSpeed = { showSpeedSheet = true },
                     onShowSleepTimer = { showSleepTimerSheet = true },
                     onShowABLoop = { showABLoopSheet = true },
@@ -246,10 +208,12 @@ fun EnhancedAudioPlayerScreen(
                     isVideoAsAudioMode = isVideoAsAudioMode,
                     onReturnToVideo = {
                         Log.d("AudioPlayerScreen", "🔵 Return to Video button clicked")
-                        viewModel.returnToVideoPlayer()
-                        Log.d("AudioPlayerScreen", "🔵 ViewModel state updated, calling navigation")
+                        // Navigate FIRST before updating state to avoid flash
                         onNavigateToVideoPlayer()
                         Log.d("AudioPlayerScreen", "🔵 Navigation callback executed")
+                        // Update state after navigation starts
+                        videoViewModel.returnToVideoPlayer()
+                        Log.d("AudioPlayerScreen", "🔵 ViewModel state updated")
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -269,14 +233,14 @@ fun EnhancedAudioPlayerScreen(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "🔁 Loop: ${formatDuration(abLoopState.pointA!!)} → ${formatDuration(
-                                    abLoopState.pointB!!
-                                )}",
+                                text = "🔁 Loop: ${formatDuration(abLoopState.pointA!!)} → ${
+                                    formatDuration(abLoopState.pointB!!)
+                                }",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onTertiaryContainer
                             )
                             IconButton(
-                                onClick = viewModel::clearABLoop,
+                                onClick = audioViewModel::clearABLoop,
                                 modifier = Modifier.size(24.dp)
                             ) {
                                 Icon(
@@ -293,7 +257,7 @@ fun EnhancedAudioPlayerScreen(
                 EnhancedSeekBar(
                     currentPosition = currentPosition,
                     duration = duration,
-                    onSeek = viewModel::seekTo,
+                    onSeek = audioViewModel::seekTo,
                     abLoopState = abLoopState,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -303,9 +267,9 @@ fun EnhancedAudioPlayerScreen(
                 // Center Playback Controls
                 CenterPlaybackControls(
                     isPlaying = isPlaying,
-                    onPlayPause = viewModel::playPause,
-                    onNext = viewModel::playNext,
-                    onPrevious = viewModel::playPrevious
+                    onPlayPause = audioViewModel::playPause,
+                    onNext = audioViewModel::playNext,
+                    onPrevious = audioViewModel::playPrevious
                 )
             }
         }
@@ -316,8 +280,7 @@ fun EnhancedAudioPlayerScreen(
                 initialSpeed = playbackSpeed,
                 onDismiss = { showSpeedSheet = false }
             ) { speed ->
-                playbackSpeed = speed
-                viewModel.setPlaybackSpeed(speed)
+                audioViewModel.setPlaybackSpeed(speed)
             }
         }
 
@@ -326,11 +289,11 @@ fun EnhancedAudioPlayerScreen(
                 currentTimerMs = sleepTimerRemaining,
                 onDismiss = { showSleepTimerSheet = false },
                 onSetTimer = { durationMs ->
-                    viewModel.startSleepTimer(durationMs)
+                    audioViewModel.startSleepTimer(durationMs)
                     showSleepTimerSheet = false
                 },
                 onCancelTimer = {
-                    viewModel.cancelSleepTimer()
+                    audioViewModel.cancelSleepTimer()
                     showSleepTimerSheet = false
                 }
             )
@@ -340,14 +303,10 @@ fun EnhancedAudioPlayerScreen(
             ABLoopBottomSheet(
                 currentState = abLoopState,
                 onDismiss = { showABLoopSheet = false },
-                onSetPointA = {
-                    viewModel.setABLoopPointA()
-                },
-                onSetPointB = {
-                    viewModel.setABLoopPointB()
-                },
+                onSetPointA = audioViewModel::setABLoopPointA,
+                onSetPointB = audioViewModel::setABLoopPointB,
                 onClear = {
-                    viewModel.clearABLoop()
+                    audioViewModel.clearABLoop()
                     showABLoopSheet = false
                 }
             )
@@ -357,6 +316,8 @@ fun EnhancedAudioPlayerScreen(
     }
 }
 
+// Keep all existing helper composables (EnhancedActionRow, EnhancedSeekBar, etc.)
+// They remain unchanged
 @Composable
 fun EnhancedActionRow(
     modifier: Modifier = Modifier,
