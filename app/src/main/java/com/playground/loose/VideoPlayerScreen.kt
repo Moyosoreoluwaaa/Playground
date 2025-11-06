@@ -64,6 +64,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.media3.common.Player
 import androidx.media3.ui.PlayerView
+import com.loose.mediaplayer.ui.viewmodel.PlayerViewModel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -87,7 +88,8 @@ fun VideoPlayerScreen(
     onToggleRepeat: () -> Unit,
     onSwitchToAudio: () -> Unit,
     onBack: () -> Unit,
-    onSetPlaybackSpeed: (Float) -> Unit = {}
+    onSetPlaybackSpeed: (Float) -> Unit = {},
+    viewModel: PlayerViewModel // CRITICAL FIX: Added viewModel
 ) {
     val context = LocalContext.current
     val activity = context as? Activity
@@ -452,9 +454,18 @@ fun VideoPlayerScreen(
                                 else
                                     ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
                             },
+                            // CRITICAL FIX: The logic inside onToggleAudioOnly has been updated
                             onToggleAudioOnly = {
-                                isAudioOnlyMode = !isAudioOnlyMode
-                                if (isAudioOnlyMode) onSwitchToAudio()
+                                coroutineScope.launch {
+                                    // CRITICAL: Call ViewModel function first to update external state
+                                    viewModel.playVideoAsAudio()
+
+                                    // CRITICAL: Wait for state to propagate before navigating
+                                    delay(100)
+
+                                    isAudioOnlyMode = true
+                                    onSwitchToAudio()
+                                }
                             },
                             isAudioOnlyActive = isAudioOnlyMode,
                             playbackSpeed = playbackSpeed,

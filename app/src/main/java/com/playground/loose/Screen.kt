@@ -1,5 +1,6 @@
 package com.loose.mediaplayer
 
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -76,15 +77,27 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
                 onPlayPause = viewModel::playPause,
                 onNext = viewModel::playNext,
                 recentlyPlayedIds = recentlyPlayedVideoIds,
-                navController = navController // 👈 Add this
+                navController = navController
             )
         }
 
         // 🎧 Audio Player
         composable(Screen.AudioPlayer.route) {
-            EnhancedAudioPlayerScreen (
+            EnhancedAudioPlayerScreen(
                 viewModel = viewModel,
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                onNavigateToVideoPlayer = {
+                    Log.d("Navigation", "🟢 onNavigateToVideoPlayer called from Audio Player")
+                    Log.d("Navigation", "🟢 Current route: ${navController.currentBackStackEntry?.destination?.route}")
+                    Log.d("Navigation", "🟢 Navigating to Video Player...")
+
+                    navController.navigate(Screen.VideoPlayer.route) {
+                        popUpTo(Screen.AudioPlayer.route) { inclusive = true }
+                    }
+
+                    Log.d("Navigation", "🟢 Navigation completed")
+                    Log.d("Navigation", "🟢 New route: ${navController.currentBackStackEntry?.destination?.route}")
+                }
             )
         }
 
@@ -108,7 +121,8 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
                         popUpTo(Screen.VideoPlayer.route) { inclusive = true }
                     }
                 },
-                onBack = { navController.popBackStack() }
+                onBack = { navController.popBackStack() },
+                viewModel = viewModel
             )
         }
     }

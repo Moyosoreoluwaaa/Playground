@@ -1,5 +1,6 @@
 package com.playground.loose
 
+import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,13 +26,12 @@ import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOn
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Speed
+import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
@@ -65,17 +65,29 @@ import com.loose.mediaplayer.ui.viewmodel.PlayerViewModel
 @Composable
 fun EnhancedAudioPlayerScreen(
     viewModel: PlayerViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onNavigateToVideoPlayer: () -> Unit = {}  // NEW: Add navigation callback
 ) {
     val currentAudio by viewModel.currentAudioItem.collectAsState()
+    val currentVideo by viewModel.currentVideoItem.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val currentPosition by viewModel.currentPosition.collectAsState()
     val duration by viewModel.duration.collectAsState()
     val repeatMode by viewModel.repeatMode.collectAsState()
     val abLoopState by viewModel.abLoopState.collectAsState()
     val sleepTimerRemaining by viewModel.sleepTimerRemaining.collectAsState()
+    val isVideoAsAudioMode by viewModel.isVideoAsAudioMode.collectAsState()
 
     val context = LocalContext.current
+
+    // DEBUG: Add logging
+    LaunchedEffect(isVideoAsAudioMode, currentVideo, currentAudio) {
+        Log.d("AudioPlayerScreen", "=== STATE UPDATE ===")
+        Log.d("AudioPlayerScreen", "isVideoAsAudioMode: $isVideoAsAudioMode")
+        Log.d("AudioPlayerScreen", "currentVideo: ${currentVideo?.title}")
+        Log.d("AudioPlayerScreen", "currentAudio: ${currentAudio?.title}")
+        Log.d("AudioPlayerScreen", "onNavigateToVideoPlayer callback: $onNavigateToVideoPlayer")
+    }
 
     var bgColors by remember { mutableStateOf(listOf(Color(0xFF121212), Color(0xFF000000))) }
     var showSpeedSheet by remember { mutableStateOf(false) }
@@ -83,8 +95,32 @@ fun EnhancedAudioPlayerScreen(
     var showABLoopSheet by remember { mutableStateOf(false) }
     var playbackSpeed by remember { mutableFloatStateOf(1f) }
 
-    LaunchedEffect(currentAudio?.albumArtUri) {
-        currentAudio?.albumArtUri?.let { uri ->
+    // FIX: Get the correct title and artwork based on mode
+    val displayTitle = remember(isVideoAsAudioMode, currentVideo, currentAudio) {
+        if (isVideoAsAudioMode && currentVideo != null) {
+            currentVideo!!.title
+        } else currentAudio?.title ?: "No track"
+    }
+
+    val displayArtist = remember(isVideoAsAudioMode, currentAudio) {
+        if (isVideoAsAudioMode) null else currentAudio?.artist
+    }
+
+    val displayAlbum = remember(isVideoAsAudioMode, currentAudio) {
+        if (isVideoAsAudioMode) null else currentAudio?.album
+    }
+
+    // FIX: Extract album art URI from correct source
+    val albumArtUri = remember(isVideoAsAudioMode, currentVideo, currentAudio) {
+        if (isVideoAsAudioMode && currentVideo != null) {
+            currentVideo!!.thumbnailUri
+        } else {
+            currentAudio?.albumArtUri
+        }
+    }
+
+    LaunchedEffect(albumArtUri) {
+        albumArtUri?.let { uri ->
             val p = try {
                 extractPalette(context, uri.toString())
             } catch (t: Throwable) {
@@ -105,7 +141,7 @@ fun EnhancedAudioPlayerScreen(
                 .padding(paddingValues)
                 .padding(20.dp)
         ) {
-            // Top bar with back button
+            // Top bar with back button and return to video button
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.Start,
@@ -153,7 +189,7 @@ fun EnhancedAudioPlayerScreen(
             ) {
                 // Album Art
                 AlbumArtwork(
-                    albumArtUri = currentAudio?.albumArtUri,
+                    albumArtUri = albumArtUri,
                     modifier = Modifier
                         .size(300.dp)
                         .clip(CircleShape)
@@ -161,32 +197,43 @@ fun EnhancedAudioPlayerScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Track Info
+                // FIX: Track Info - Display correct info based on what's actually playing
                 Text(
-                    text = currentAudio?.title ?: "No track",
+                    text = displayTitle,
                     color = Color.White,
                     style = MaterialTheme.typography.titleLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                currentAudio?.artist?.let {
+
+                if (isVideoAsAudioMode) {
+                    // Show "Video (Audio Only)" label for videos
                     Text(
-                        text = it,
-                        color = Color.White.copy(alpha = 0.9f),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-                }
-                currentAudio?.album?.let {
-                    Text(
-                        text = it,
+                        text = "Video (Audio Only)",
                         color = Color.White.copy(alpha = 0.7f),
                         style = MaterialTheme.typography.bodyMedium
                     )
+                } else {
+                    // Show artist and album for regular audio
+                    displayArtist?.let {
+                        Text(
+                            text = it,
+                            color = Color.White.copy(alpha = 0.9f),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    }
+                    displayAlbum?.let {
+                        Text(
+                            text = it,
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(40.dp))
 
-                // Enhanced Action Row - Pass playbackSpeed
+                // Enhanced Action Row - Now includes Video Mode button when applicable
                 EnhancedActionRow(
                     repeatMode = repeatMode,
                     onToggleRepeat = viewModel::toggleRepeatMode,
@@ -195,7 +242,15 @@ fun EnhancedAudioPlayerScreen(
                     onShowABLoop = { showABLoopSheet = true },
                     abLoopActive = abLoopState.isActive,
                     sleepTimerActive = sleepTimerRemaining > 0,
-                    playbackSpeed = playbackSpeed, // NEW
+                    playbackSpeed = playbackSpeed,
+                    isVideoAsAudioMode = isVideoAsAudioMode,
+                    onReturnToVideo = {
+                        Log.d("AudioPlayerScreen", "🔵 Return to Video button clicked")
+                        viewModel.returnToVideoPlayer()
+                        Log.d("AudioPlayerScreen", "🔵 ViewModel state updated, calling navigation")
+                        onNavigateToVideoPlayer()
+                        Log.d("AudioPlayerScreen", "🔵 Navigation callback executed")
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
 
@@ -302,7 +357,6 @@ fun EnhancedAudioPlayerScreen(
     }
 }
 
-// AudioPlayerScreen.kt - Update EnhancedActionRow
 @Composable
 fun EnhancedActionRow(
     modifier: Modifier = Modifier,
@@ -313,16 +367,22 @@ fun EnhancedActionRow(
     onShowABLoop: () -> Unit,
     abLoopActive: Boolean,
     sleepTimerActive: Boolean,
-    playbackSpeed: Float, // NEW parameter
+    playbackSpeed: Float,
+    isVideoAsAudioMode: Boolean,
+    onReturnToVideo: () -> Unit,
     actionBgColor: Color = MaterialTheme.colorScheme.surfaceVariant,
     activeColor: Color = MaterialTheme.colorScheme.primary
 ) {
+    // DEBUG: Log when this composable renders
+    LaunchedEffect(isVideoAsAudioMode) {
+        Log.d("EnhancedActionRow", "Rendering with isVideoAsAudioMode=$isVideoAsAudioMode")
+    }
+
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Repeat
         ActionIconButton(
             onClick = onToggleRepeat,
             icon = when (repeatMode) {
@@ -334,7 +394,7 @@ fun EnhancedActionRow(
             contentDescription = "Repeat"
         )
 
-        // Speed - Changed color when not 1.0x
+        // Speed
         ActionIconButton(
             onClick = onShowSpeed,
             icon = Icons.Filled.Speed,
@@ -350,13 +410,29 @@ fun EnhancedActionRow(
             contentDescription = "A-B Loop"
         )
 
-        // Sleep Timer
-        ActionIconButton(
-            onClick = onShowSleepTimer,
-            icon = Icons.Default.Bedtime,
-            backgroundColor = if (sleepTimerActive) activeColor else actionBgColor,
-            contentDescription = "Sleep Timer"
-        )
+        // NEW: Conditionally show either Sleep Timer OR Return to Video button
+        if (isVideoAsAudioMode) {
+            Log.d("EnhancedActionRow", "🎥 Showing Return to Video button")
+            // Show Video Mode button when listening to video as audio
+            ActionIconButton(
+                onClick = {
+                    Log.d("EnhancedActionRow", "🎥 Return to Video button CLICKED")
+                    onReturnToVideo()
+                },
+                icon = Icons.Filled.VideoLibrary,
+                backgroundColor = activeColor,
+                contentDescription = "Return to Video"
+            )
+        } else {
+            Log.d("EnhancedActionRow", "😴 Showing Sleep Timer button")
+            // Show Sleep Timer for regular audio
+            ActionIconButton(
+                onClick = onShowSleepTimer,
+                icon = Icons.Default.Bedtime,
+                backgroundColor = if (sleepTimerActive) activeColor else actionBgColor,
+                contentDescription = "Sleep Timer"
+            )
+        }
     }
 }
 
@@ -474,15 +550,12 @@ fun SleepTimerBottomSheet(
                 )
 
                 presets.forEach { (label, durationMs) ->
-                    ListItem(
+                    androidx.compose.material3.ListItem(
                         headlineContent = { Text(label) },
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onSetTimer(durationMs) }
                     )
-//                    if (label != presets.last().first) {
-//                        HorizontalDivider()
-//                    }
                 }
             }
 

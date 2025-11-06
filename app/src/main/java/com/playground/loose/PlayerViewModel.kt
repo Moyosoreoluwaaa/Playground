@@ -11,7 +11,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.exoplayer.ExoPlayer // Import ExoPlayer for casting
+import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
@@ -89,16 +89,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val _videoPositions = MutableStateFlow<Map<Long, Long>>(emptyMap())
     val videoPositions: StateFlow<Map<Long, Long>> = _videoPositions.asStateFlow()
 
-    // NEW: A-B Loop state
     private val _abLoopState = MutableStateFlow(ABLoopState())
     val abLoopState: StateFlow<ABLoopState> = _abLoopState.asStateFlow()
 
-    // NEW: Sleep timer state
     private val _sleepTimerRemaining = MutableStateFlow(0L)
     val sleepTimerRemaining: StateFlow<Long> = _sleepTimerRemaining.asStateFlow()
     private var sleepTimerJob: Job? = null
 
-    // NEW: Queue state for proper next/previous
     private val _currentQueue = MutableStateFlow<List<MediaItemInfo>>(emptyList())
     val currentQueue: StateFlow<List<MediaItemInfo>> = _currentQueue.asStateFlow()
 
@@ -108,6 +105,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val _audioPlaylists = MutableStateFlow<List<AudioPlaylist>>(emptyList())
     val audioPlaylists: StateFlow<List<AudioPlaylist>> = _audioPlaylists.asStateFlow()
 
+    // NEW: Track if we're in video-as-audio mode
+    private val _isVideoAsAudioMode = MutableStateFlow(false)
+    val isVideoAsAudioMode: StateFlow<Boolean> = _isVideoAsAudioMode.asStateFlow()
+
     private var currentPlaylist = listOf<Long>()
     private var currentIndex = 0
 
@@ -116,16 +117,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var isLoadingMedia = false
     private var lastPlayedMediaId = 0L
 
-    // PlayerViewModel.kt - Add new state for playlist mode
     private val _isPlaylistMode = MutableStateFlow(false)
     val isPlaylistMode: StateFlow<Boolean> = _isPlaylistMode.asStateFlow()
 
     private var playlistQueue = listOf<Long>()
 
-    // PlayerViewModel.kt - Add playbackSpeed state
     private val _playbackSpeed = MutableStateFlow(1f)
     val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
-
 
     companion object {
         private const val TAG = "PlayerViewModel"
@@ -143,53 +141,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         loadMediaAndRestore()
     }
 
-    // Update playSelectedAudio function
-    fun playSelectedAudio(selection: List<AudioItem>, startIndex: Int = 0) {
-        if (selection.isEmpty()) return
-
-        viewModelScope.launch {
-            val startAudio = selection[startIndex]
-            val savedPosition = _audioPositions.value[startAudio.id] ?: 0L
-
-            try {
-                player.stop()
-                player.clearMediaItems()
-
-                val mediaItems = selection.map { it.toMediaItem() }
-                player.setMediaItems(mediaItems, startIndex, savedPosition.coerceAtLeast(0L))
-                player.prepare()
-                player.playWhenReady = true
-
-                _currentAudioItem.value = startAudio
-                _isAudioMode.value = true
-
-                // Mark as playlist mode
-                _isPlaylistMode.value = true
-                playlistQueue = selection.map { it.id }
-
-                // Set repeat mode on player
-                player.repeatMode = when (_repeatMode.value) {
-                    RepeatMode.OFF -> Player.REPEAT_MODE_OFF
-                    RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-                    RepeatMode.ALL -> Player.REPEAT_MODE_ALL
-                }
-
-                // BUILD queue from selection
-                val queue = selection.map { MediaItemInfo(it.id, it.title, true) }
-                _currentQueue.value = queue
-                _currentQueueIndex.value = startIndex
-                currentPlaylist = selection.map { it.id }
-                currentIndex = startIndex
-
-                Log.d(TAG, "✅ Playlist mode: ${selection.size} items, repeat=${_repeatMode.value}")
-
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Error playing selected audio", e)
-            }
-        }
-    }
-
-    // Update playAudio to disable playlist mode
+    // FIX 1: Updated playAudio to properly set up MediaSession for widget control
     fun playAudio(audio: AudioItem, autoPlay: Boolean = true) {
         if (lastPlayedMediaId == audio.id && _currentAudioItem.value?.id == audio.id && !autoPlay) {
             Log.d(TAG, "⏭️ Ignoring duplicate playAudio call")
@@ -210,7 +162,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 player.stop()
                 player.clearMediaItems()
 
-                val mediaItem = audio.toMediaItem()
+                // FIX: Create MediaItem with complete metadata for widget
+                val mediaItem = MediaItem.Builder()
+                    .setUri(audio.uri)
+                    .setMediaId(audio.id.toString())
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(audio.title)
+                            .setArtist(audio.artist ?: "Unknown Artist")
+                            .setAlbumTitle(audio.album)
+                            .setArtworkUri(audio.albumArtUri)
+                            .build()
+                    )
+                    .build()
 
                 player.setMediaItem(mediaItem)
                 player.prepare()
@@ -218,12 +182,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
                 _currentAudioItem.value = audio
                 _isAudioMode.value = true
+                _isVideoAsAudioMode.value = false // Clear video-as-audio flag
 
                 // Disable playlist mode
                 _isPlaylistMode.value = false
                 playlistQueue = emptyList()
 
-                // BUILD proper queue from all audio
+                // Build proper queue from all audio
                 buildQueueFromAllAudio(audio)
 
                 // Set repeat mode OFF when playing single track
@@ -257,7 +222,97 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // Update toggleRepeatMode to sync with player
+    // FIX 2: Updated playSelectedAudio with proper metadata
+    fun playSelectedAudio(selection: List<AudioItem>, startIndex: Int = 0) {
+        if (selection.isEmpty()) return
+
+        viewModelScope.launch {
+            val startAudio = selection[startIndex]
+            val savedPosition = _audioPositions.value[startAudio.id] ?: 0L
+
+            try {
+                player.stop()
+                player.clearMediaItems()
+
+                // FIX: Build MediaItems with complete metadata
+                val mediaItems = selection.map { audio ->
+                    MediaItem.Builder()
+                        .setUri(audio.uri)
+                        .setMediaId(audio.id.toString())
+                        .setMediaMetadata(
+                            MediaMetadata.Builder()
+                                .setTitle(audio.title)
+                                .setArtist(audio.artist ?: "Unknown Artist")
+                                .setAlbumTitle(audio.album)
+                                .setArtworkUri(audio.albumArtUri)
+                                .build()
+                        )
+                        .build()
+                }
+
+                player.setMediaItems(mediaItems, startIndex, savedPosition.coerceAtLeast(0L))
+                player.prepare()
+                player.playWhenReady = true
+
+                _currentAudioItem.value = startAudio
+                _isAudioMode.value = true
+                _isVideoAsAudioMode.value = false // Clear video-as-audio flag
+
+                // Mark as playlist mode
+                _isPlaylistMode.value = true
+                playlistQueue = selection.map { it.id }
+
+                // Set repeat mode on player
+                player.repeatMode = when (_repeatMode.value) {
+                    RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+                    RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+                    RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+                }
+
+                // Build queue from selection
+                val queue = selection.map { MediaItemInfo(it.id, it.title, true) }
+                _currentQueue.value = queue
+                _currentQueueIndex.value = startIndex
+                currentPlaylist = selection.map { it.id }
+                currentIndex = startIndex
+
+                Log.d(TAG, "✅ Playlist mode: ${selection.size} items, repeat=${_repeatMode.value}")
+
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error playing selected audio", e)
+            }
+        }
+    }
+
+    // FIX 3: New function to switch video to audio-only mode
+    fun playVideoAsAudio() {
+        val video = _currentVideoItem.value
+        if (video == null) {
+            Log.w(TAG, "⚠️ No video playing, cannot switch to audio mode")
+            return
+        }
+
+        Log.d(TAG, "🎵 Switching video to audio-only mode: ${video.title}")
+        Log.d(TAG, "   Before: isAudioMode=${_isAudioMode.value}, isVideoAsAudioMode=${_isVideoAsAudioMode.value}")
+        Log.d(TAG, "   CurrentVideo: ${_currentVideoItem.value?.title}")
+        Log.d(TAG, "   CurrentAudio: ${_currentAudioItem.value?.title}")
+
+        // CRITICAL: Switch flags in correct order AND keep video reference
+        _isAudioMode.value = true
+        _isVideoAsAudioMode.value = true
+        // Don't clear currentVideo - we need it to return to video player!
+
+        Log.d(TAG, "   After: isAudioMode=${_isAudioMode.value}, isVideoAsAudioMode=${_isVideoAsAudioMode.value}")
+        Log.d(TAG, "✅ Switched to audio-only mode")
+    }
+
+    // FIX 4: New function to return to video player
+    fun returnToVideoPlayer() {
+        Log.d(TAG, "🎬 Returning to video player")
+        _isAudioMode.value = false
+        _isVideoAsAudioMode.value = false
+    }
+
     fun toggleRepeatMode() {
         _repeatMode.value = when (_repeatMode.value) {
             RepeatMode.OFF -> RepeatMode.ALL
@@ -265,7 +320,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             RepeatMode.ONE -> RepeatMode.OFF
         }
 
-        // Sync player repeat mode
         player.repeatMode = when (_repeatMode.value) {
             RepeatMode.OFF -> Player.REPEAT_MODE_OFF
             RepeatMode.ONE -> Player.REPEAT_MODE_ONE
@@ -279,9 +333,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         Log.d(TAG, "🔁 Repeat mode: ${_repeatMode.value}, playlist mode: ${_isPlaylistMode.value}")
     }
 
-    // Update playNext to respect playlist mode
     fun playNext() {
-        // In playlist mode, let ExoPlayer handle navigation
         if (_isPlaylistMode.value && player.mediaItemCount > 1) {
             if (player.hasNextMediaItem()) {
                 player.seekToNextMediaItem()
@@ -293,7 +345,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
-        // Normal mode - use queue
         if (_currentQueue.value.isEmpty()) {
             Log.w(TAG, "⚠️ Queue is empty, cannot play next")
             return
@@ -315,9 +366,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // Update playPrevious to respect playlist mode
     fun playPrevious() {
-        // In playlist mode, let ExoPlayer handle navigation
         if (_isPlaylistMode.value && player.mediaItemCount > 1) {
             if (player.currentPosition > 3000) {
                 player.seekTo(0)
@@ -333,7 +382,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             return
         }
 
-        // Normal mode - use queue
         if (_currentQueue.value.isEmpty()) {
             Log.w(TAG, "⚠️ Queue is empty, cannot play previous")
             return
@@ -359,7 +407,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // Add helper function to update current item from player
     private fun updateCurrentItemFromPlayer() {
         val currentItem = player.currentMediaItem
         val mediaId = currentItem?.mediaId?.toLongOrNull() ?: return
@@ -375,7 +422,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private fun observePreferences() {
         preferencesManager.appPreferences
             .onEach { prefs ->
-                Log.d(TAG, "📝 Preferences updated")
+                Log.d(TAG, "📋 Preferences updated")
                 _audioViewMode.value = prefs.audioViewMode
                 _videoViewMode.value = prefs.videoViewMode
                 _audioSortOption.value = prefs.audioSortOption
@@ -388,29 +435,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             .launchIn(viewModelScope)
     }
 
-    private fun AudioItem.toMediaItem(): MediaItem = MediaItem.Builder()
-        .setUri(this.uri)
-        .setMediaId(this.id.toString())
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(this.title)
-                .setArtist(this.artist)
-                .setAlbumTitle(this.album)
-                .setArtworkUri(this.albumArtUri)
-                .build()
-        )
-        .build()
-
-    private fun VideoItem.toMediaItem(): MediaItem = MediaItem.Builder()
-        .setUri(this.uri)
-        .setMediaId(this.id.toString())
-        .setMediaMetadata(
-            MediaMetadata.Builder()
-                .setTitle(this.title)
-                .build()
-        )
-        .build()
-
     private fun loadMediaAndRestore() {
         viewModelScope.launch {
             try {
@@ -419,7 +443,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 Log.d(TAG, "✅ Initial preferences loaded")
 
                 val savedSession = sessionManager.getSession()
-                Log.d(TAG, "📝 Saved session: ${savedSession?.let { "mediaId=${it.mediaId}, pos=${formatTime(it.position)}" } ?: "none"}")
+                Log.d(TAG, "💾 Saved session: ${savedSession?.let { "mediaId=${it.mediaId}, pos=${formatTime(it.position)}" } ?: "none"}")
 
                 Log.d(TAG, "🎵 Initializing MediaController...")
                 initializeMediaController()
@@ -493,8 +517,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private fun createFallbackPlayer(): Player {
-        Log.w(TAG, "🎚️ Creating FALLBACK player. Controller is not ready. Playback will be local only.")
-        return androidx.media3.exoplayer.ExoPlayer.Builder(getApplication())
+        Log.w(TAG, "🎮️ Creating FALLBACK player. Controller is not ready. Playback will be local only.")
+        return ExoPlayer.Builder(getApplication())
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -529,8 +553,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 mediaItem?.let {
                     _duration.value = player.duration
                     Log.d(TAG, "🎬 Media transition: ${it.mediaMetadata.title}")
-
-                    // UPDATE: Update current queue index when media transitions
                     updateCurrentQueueIndex()
                 }
             }
@@ -555,8 +577,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 if (player.isPlaying) {
                     val pos = player.currentPosition
                     _currentPosition.value = pos
-
-                    // CHECK: A-B Loop monitoring
                     checkABLoop(pos)
                 }
                 delay(500)
@@ -584,7 +604,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // NEW: A-B Loop check
     private fun checkABLoop(currentPos: Long) {
         val loop = _abLoopState.value
         if (loop.isActive && loop.pointA != null && loop.pointB != null) {
@@ -594,7 +613,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // NEW: Set A-B Loop points
     fun setABLoopPointA() {
         val pos = player.currentPosition
         _abLoopState.value = _abLoopState.value.copy(pointA = pos)
@@ -615,7 +633,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         Log.d(TAG, "🔁 A-B Loop cleared")
     }
 
-    // NEW: Sleep Timer functions
     fun startSleepTimer(durationMs: Long) {
         sleepTimerJob?.cancel()
         _sleepTimerRemaining.value = durationMs
@@ -629,7 +646,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 delay(1000)
             }
 
-            // Time's up - pause playback
             player.pause()
             _sleepTimerRemaining.value = 0L
             Log.d(TAG, "💤 Sleep timer ended, playback paused")
@@ -685,7 +701,18 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             player.stop()
             player.clearMediaItems()
 
-            val mediaItem = audio.toMediaItem()
+            val mediaItem = MediaItem.Builder()
+                .setUri(audio.uri)
+                .setMediaId(audio.id.toString())
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(audio.title)
+                        .setArtist(audio.artist ?: "Unknown Artist")
+                        .setAlbumTitle(audio.album)
+                        .setArtworkUri(audio.albumArtUri)
+                        .build()
+                )
+                .build()
 
             player.setMediaItem(mediaItem)
             player.prepare()
@@ -708,7 +735,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 _isAudioMode.value = true
                 _duration.value = player.duration
 
-                // UPDATE: Build queue properly
                 buildQueueFromAllAudio(audio)
 
                 player.playWhenReady = false
@@ -727,7 +753,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             player.stop()
             player.clearMediaItems()
 
-            val mediaItem = video.toMediaItem()
+            val mediaItem = MediaItem.Builder()
+                .setUri(video.uri)
+                .setMediaId(video.id.toString())
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(video.title)
+                        .build()
+                )
+                .build()
 
             player.setMediaItem(mediaItem)
             player.prepare()
@@ -750,7 +784,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 _isAudioMode.value = false
                 _duration.value = player.duration
 
-                // UPDATE: Build queue properly
                 buildQueueFromAllVideo(video)
 
                 player.playWhenReady = false
@@ -785,7 +818,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // UPDATE: Improved playVideo with proper queue building
     fun playVideo(video: VideoItem, autoPlay: Boolean = true) {
         if (lastPlayedMediaId == video.id && _currentVideoItem.value?.id == video.id && !autoPlay) {
             Log.d(TAG, "⏭️ Ignoring duplicate playVideo call")
@@ -806,7 +838,15 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 player.stop()
                 player.clearMediaItems()
 
-                val mediaItem = video.toMediaItem()
+                val mediaItem = MediaItem.Builder()
+                    .setUri(video.uri)
+                    .setMediaId(video.id.toString())
+                    .setMediaMetadata(
+                        MediaMetadata.Builder()
+                            .setTitle(video.title)
+                            .build()
+                    )
+                    .build()
 
                 player.setMediaItem(mediaItem)
                 player.prepare()
@@ -814,8 +854,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
                 _currentVideoItem.value = video
                 _isAudioMode.value = false
+                _isVideoAsAudioMode.value = false
 
-                // BUILD proper queue
                 buildQueueFromAllVideo(video)
 
                 preferencesManager.addRecentlyPlayedVideo(video.id)
@@ -850,7 +890,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
-    // NEW: Queue building helper functions
     private fun buildQueueFromAllAudio(currentAudio: AudioItem) {
         val allAudio = _audioItems.value
         val queue = allAudio.map { MediaItemInfo(it.id, it.title, true) }
@@ -1002,7 +1041,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 }
 
-// NEW: Data classes for enhanced features
 data class ABLoopState(
     val pointA: Long? = null,
     val pointB: Long? = null,
