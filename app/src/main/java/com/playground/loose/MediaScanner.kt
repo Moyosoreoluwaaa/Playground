@@ -9,7 +9,7 @@ import kotlinx.coroutines.withContext
 
 class MediaScanner(private val context: Context) {
 
-    suspend fun scanAudioFiles(sortOption: SortOption = SortOption.NAME): List<AudioItem> =
+    suspend fun scanAudioFiles(sortOption: SortOption = SortOption.NAME_ASC): List<AudioItem> =
         withContext(Dispatchers.IO) {
             val audioList = mutableListOf<AudioItem>()
             val projection = arrayOf(
@@ -25,11 +25,17 @@ class MediaScanner(private val context: Context) {
             )
 
             val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+
+            // Map SortOption to MediaStore sort order
             val sortOrder = when (sortOption) {
-                SortOption.NAME -> "${MediaStore.Audio.Media.TITLE} ASC"
-                SortOption.DATE_ADDED -> "${MediaStore.Audio.Media.DATE_ADDED} DESC"
-                SortOption.DURATION -> "${MediaStore.Audio.Media.DURATION} DESC"
-                SortOption.SIZE -> "${MediaStore.Audio.Media.SIZE} DESC"
+                SortOption.NAME_ASC -> "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
+                SortOption.NAME_DESC -> "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE DESC"
+                SortOption.DATE_ADDED_ASC -> "${MediaStore.Audio.Media.DATE_ADDED} ASC"
+                SortOption.DATE_ADDED_DESC -> "${MediaStore.Audio.Media.DATE_ADDED} DESC"
+                SortOption.DURATION_ASC -> "${MediaStore.Audio.Media.DURATION} ASC"
+                SortOption.DURATION_DESC -> "${MediaStore.Audio.Media.DURATION} DESC"
+                SortOption.SIZE_ASC -> "${MediaStore.Audio.Media.SIZE} ASC"
+                SortOption.SIZE_DESC -> "${MediaStore.Audio.Media.SIZE} DESC"
             }
 
             context.contentResolver.query(
@@ -80,7 +86,7 @@ class MediaScanner(private val context: Context) {
             audioList
         }
 
-    suspend fun scanVideoFiles(sortOption: SortOption = SortOption.NAME): List<VideoItem> =
+    suspend fun scanVideoFiles(sortOption: SortOption = SortOption.NAME_ASC): List<VideoItem> =
         withContext(Dispatchers.IO) {
             val videoList = mutableListOf<VideoItem>()
             val projection = arrayOf(
@@ -94,11 +100,16 @@ class MediaScanner(private val context: Context) {
                 MediaStore.Video.Media.HEIGHT
             )
 
+            // Map SortOption to MediaStore sort order
             val sortOrder = when (sortOption) {
-                SortOption.NAME -> "${MediaStore.Video.Media.TITLE} ASC"
-                SortOption.DATE_ADDED -> "${MediaStore.Video.Media.DATE_ADDED} DESC"
-                SortOption.DURATION -> "${MediaStore.Video.Media.DURATION} DESC"
-                SortOption.SIZE -> "${MediaStore.Video.Media.SIZE} DESC"
+                SortOption.NAME_ASC -> "${MediaStore.Video.Media.TITLE} COLLATE NOCASE ASC"
+                SortOption.NAME_DESC -> "${MediaStore.Video.Media.TITLE} COLLATE NOCASE DESC"
+                SortOption.DATE_ADDED_ASC -> "${MediaStore.Video.Media.DATE_ADDED} ASC"
+                SortOption.DATE_ADDED_DESC -> "${MediaStore.Video.Media.DATE_ADDED} DESC"
+                SortOption.DURATION_ASC -> "${MediaStore.Video.Media.DURATION} ASC"
+                SortOption.DURATION_DESC -> "${MediaStore.Video.Media.DURATION} DESC"
+                SortOption.SIZE_ASC -> "${MediaStore.Video.Media.SIZE} ASC"
+                SortOption.SIZE_DESC -> "${MediaStore.Video.Media.SIZE} DESC"
             }
 
             context.contentResolver.query(
@@ -127,8 +138,7 @@ class MediaScanner(private val context: Context) {
                     val width = cursor.getInt(widthColumn)
                     val height = cursor.getInt(heightColumn)
 
-                    // CRITICAL: Return video URI immediately, let Coil handle thumbnails asynchronously
-                    // This makes the list appear instantly like audio
+                    // Use video URI directly - Coil extracts frames asynchronously
                     videoList.add(
                         VideoItem(
                             id = id,
@@ -137,7 +147,7 @@ class MediaScanner(private val context: Context) {
                             duration = cursor.getLong(durationColumn),
                             size = cursor.getLong(sizeColumn),
                             dateAdded = cursor.getLong(dateColumn),
-                            thumbnailUri = uri, // Use video URI directly - Coil extracts frames
+                            thumbnailUri = uri, // Coil handles thumbnail extraction
                             path = cursor.getString(dataColumn),
                             width = width,
                             height = height
@@ -146,7 +156,6 @@ class MediaScanner(private val context: Context) {
                 }
             }
 
-            // Videos load instantly now!
             videoList
         }
 }

@@ -1,4 +1,4 @@
-package com.loose.mediaplayer.ui.screen
+package com.playground.loose
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -17,43 +18,36 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material.icons.automirrored.filled.ViewList
-import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,7 +56,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -72,39 +65,11 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.loose.mediaplayer.Screen
-import com.playground.loose.LibrarySearchBar
-import com.playground.loose.MiniPlayer
-import com.playground.loose.SortOption
-import com.playground.loose.VideoItem
-import com.playground.loose.ViewMode
-import com.playground.loose.formatDuration
-import java.util.Locale
-
-//private fun formatDuration(ms: Long): String {
-//    if (ms <= 0) return "00:00"
-//
-//    val totalSeconds = ms / 1000
-//
-//    // Check if the total duration is an hour or more (3600 seconds)
-//    val hasHours = totalSeconds >= 3600
-//
-//    val hours = totalSeconds / 3600
-//    val minutes = (totalSeconds % 3600) / 60
-//    val seconds = totalSeconds % 60
-//
-//    return if (hasHours) {
-//        // Format as H:MM:SS using Locale.US for consistent output
-//        String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
-//    } else {
-//        // Format as MM:SS using Locale.US for consistent output
-//        String.format(Locale.US, "%02d:%02d", minutes, seconds)
-//    }
-//}
 
 enum class VideoFilter {
-    ALL,      // All videos
-    SHORTS,   // Portrait videos < 4 minutes
-    FULL      // Everything else
+    ALL,
+    SHORTS,
+    FULL
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -125,24 +90,21 @@ fun VideoLibraryScreen(
     recentlyPlayedIds: List<Long> = emptyList(),
     navController: NavController
 ) {
-    var showSortMenu by remember { mutableStateOf(false) }
     var selectedFilter by remember { mutableStateOf(VideoFilter.ALL) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
-
-    // NEW: Focus Requester for search TextField
     val searchFocusRequester = remember { FocusRequester() }
 
-    // Filter + Search logic
-    val processedVideos = remember(videoItems, selectedFilter, searchQuery) {
+    val processedVideos = remember(videoItems, selectedFilter, searchQuery, sortOption) {
         val filtered = when (selectedFilter) {
             VideoFilter.ALL -> videoItems
             VideoFilter.SHORTS -> videoItems.filter { it.height > it.width && it.duration < 240000 }
             VideoFilter.FULL -> videoItems.filter { it.height <= it.width || it.duration >= 240000 }
         }
-        if (searchQuery.isBlank()) filtered else filtered.filter {
+        val searched = if (searchQuery.isBlank()) filtered else filtered.filter {
             it.title.contains(searchQuery, true)
         }
+        searched.sortedByOption(sortOption)
     }
 
     val recentVideos = remember(videoItems, recentlyPlayedIds) {
@@ -155,7 +117,6 @@ fun VideoLibraryScreen(
                 TopAppBar(
                     title = {
                         if (isSearchActive) {
-                            // Use the new reusable search bar component
                             LibrarySearchBar(
                                 searchQuery = searchQuery,
                                 onSearchQueryChange = { searchQuery = it },
@@ -169,7 +130,6 @@ fun VideoLibraryScreen(
                     },
                     actions = {
                         if (!isSearchActive) {
-                            // Search Button (sets isSearchActive=true, triggering LaunchedEffect)
                             IconButton(onClick = { isSearchActive = true }) {
                                 Icon(Icons.Filled.Search, contentDescription = "Search")
                             }
@@ -183,27 +143,10 @@ fun VideoLibraryScreen(
                                     contentDescription = "Toggle view"
                                 )
                             }
-                            IconButton(onClick = { showSortMenu = true }) {
-                                Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort")
-                            }
-                            DropdownMenu(
-                                expanded = showSortMenu,
-                                onDismissRequest = { showSortMenu = false }
-                            ) {
-                                SortOption.entries.forEach { option ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                option.name.replace("_", " ").lowercase()
-                                                    .replaceFirstChar { it.uppercase() })
-                                        },
-                                        onClick = {
-                                            onSortChange(option)
-                                            showSortMenu = false
-                                        }
-                                    )
-                                }
-                            }
+                            SortMenuButton(
+                                currentSort = sortOption,
+                                onSortChange = onSortChange
+                            )
                         }
                     }
                 )
@@ -220,7 +163,6 @@ fun VideoLibraryScreen(
         },
         bottomBar = {
             Column {
-                // Mini Player
                 if (currentVideoId != null) {
                     MiniPlayer(
                         currentAudio = null,
@@ -234,7 +176,6 @@ fun VideoLibraryScreen(
                     )
                 }
 
-                // Bottom Navigation Bar
                 NavigationBar {
                     NavigationBarItem(
                         icon = { Icon(Icons.Filled.MusicNote, null) },
@@ -262,63 +203,53 @@ fun VideoLibraryScreen(
             }
         }
     ) { padding ->
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = PaddingValues(bottom = 80.dp)
-        ) {
-            // Recently played
-            if (recentVideos.isNotEmpty() && searchQuery.isBlank()) {
-                item {
-                    Column(Modifier.fillMaxWidth()) {
-                        Text(
-                            "Recently Played",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                        )
-                        LazyRow(
-                            contentPadding = PaddingValues(horizontal = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(recentVideos, key = { it.id }) { video ->
-                                RecentVideoCard(video, video.id == currentVideoId) {
-                                    onVideoClick(video)
-                                }
-                            }
-                        }
-                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
-                    }
+        if (processedVideos.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = if (searchQuery.isEmpty()) Icons.Filled.VideoLibrary else Icons.Filled.SearchOff,
+                        contentDescription = null,
+                        modifier = Modifier.size(64.dp),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                    )
+                    Text(
+                        text = if (searchQuery.isEmpty()) "No videos found" else "No results for \"$searchQuery\"",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
-
-            // Video list/grid
-            if (processedVideos.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(200.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            if (searchQuery.isEmpty()) "No videos found"
-                            else "No results for \"$searchQuery\""
-                        )
-                    }
-                }
+        } else {
+            if (viewMode == ViewMode.LIST) {
+                VideoListView(
+                    processedVideos = processedVideos,
+                    recentVideos = recentVideos,
+                    currentVideoId = currentVideoId,
+                    searchQuery = searchQuery,
+                    onVideoClick = onVideoClick,
+                    modifier = Modifier.padding(padding)
+                )
             } else {
-                items(processedVideos, key = { it.id }) { video ->
-                    if (viewMode == ViewMode.LIST)
-                        VideoListItem(video, video.id == currentVideoId) { onVideoClick(video) }
-                    else
-                        VideoGridItem(video, video.id == currentVideoId) { onVideoClick(video) }
-                }
+                VideoGridView(
+                    processedVideos = processedVideos,
+                    recentVideos = recentVideos,
+                    currentVideoId = currentVideoId,
+                    searchQuery = searchQuery,
+                    onVideoClick = onVideoClick,
+                    modifier = Modifier.padding(padding)
+                )
             }
         }
     }
 }
-
 
 @Composable
 fun VideoFilterTabs(
@@ -348,11 +279,7 @@ fun VideoFilterTabs(
                     )
                     Text("All")
                 }
-            },
-            colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+            }
         )
 
         FilterChip(
@@ -370,11 +297,7 @@ fun VideoFilterTabs(
                     )
                     Text("Shorts ($shortsCount)")
                 }
-            },
-            colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+            }
         )
 
         FilterChip(
@@ -392,12 +315,96 @@ fun VideoFilterTabs(
                     )
                     Text("Full ($fullCount)")
                 }
-            },
-            colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
+            }
         )
+    }
+}
+
+@Composable
+private fun VideoListView(
+    processedVideos: List<VideoItem>,
+    recentVideos: List<VideoItem>,
+    currentVideoId: Long?,
+    searchQuery: String,
+    onVideoClick: (VideoItem) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(bottom = 16.dp)
+    ) {
+        if (recentVideos.isNotEmpty() && searchQuery.isBlank()) {
+            item {
+                Column(Modifier.fillMaxWidth()) {
+                    Text(
+                        "Recently Played",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(recentVideos, key = { it.id }) { video ->
+                            RecentVideoCard(video, video.id == currentVideoId) {
+                                onVideoClick(video)
+                            }
+                        }
+                    }
+                    HorizontalDivider(Modifier.padding(vertical = 12.dp))
+                }
+            }
+        }
+
+        items(processedVideos, key = { it.id }) { video ->
+            VideoListItem(video, video.id == currentVideoId) { onVideoClick(video) }
+//            HorizontalDivider()
+        }
+    }
+}
+
+@Composable
+private fun VideoGridView(
+    processedVideos: List<VideoItem>,
+    recentVideos: List<VideoItem>,
+    currentVideoId: Long?,
+    searchQuery: String,
+    onVideoClick: (VideoItem) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Fixed(2),
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        if (recentVideos.isNotEmpty() && searchQuery.isBlank()) {
+            item(span = { GridItemSpan(2) }) {
+                Column(Modifier.fillMaxWidth()) {
+                    Text(
+                        "Recently Played",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
+                    )
+                    LazyRow(
+                        contentPadding = PaddingValues(horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        items(recentVideos, key = { it.id }) { video ->
+                            RecentVideoCard(video, video.id == currentVideoId) {
+                                onVideoClick(video)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+            }
+        }
+
+        items(processedVideos, key = { it.id }) { video ->
+            VideoGridItem(video, video.id == currentVideoId) { onVideoClick(video) }
+        }
     }
 }
 
@@ -409,7 +416,7 @@ fun RecentVideoCard(
 ) {
     Card(
         modifier = Modifier
-            .width(100.dp)
+            .width(120.dp)
             .aspectRatio(9f / 16f)
             .clickable(onClick = onClick),
         colors = CardDefaults.cardColors(
@@ -428,7 +435,6 @@ fun RecentVideoCard(
                 contentScale = ContentScale.Crop
             )
 
-            // Gradient overlay at bottom
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -437,13 +443,11 @@ fun RecentVideoCard(
                             colors = listOf(
                                 Color.Transparent,
                                 Color.Black.copy(alpha = 0.7f)
-                            ),
-                            startY = 200f
+                            )
                         )
                     )
             )
 
-            // Duration badge
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -458,7 +462,6 @@ fun RecentVideoCard(
                 )
             }
 
-            // Playing indicator
             if (isPlaying) {
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
@@ -470,7 +473,6 @@ fun RecentVideoCard(
                 )
             }
 
-            // Title at bottom
             Text(
                 text = video.title,
                 maxLines = 2,
@@ -486,106 +488,81 @@ fun RecentVideoCard(
 }
 
 @Composable
-fun VideoListView(
-    videoItems: List<VideoItem>,
-    currentVideoId: Long?,
-    onVideoClick: (VideoItem) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(8.dp)
-    ) {
-        items(videoItems, key = { it.id }) { video ->
-            VideoListItem(
-                video = video,
-                isPlaying = video.id == currentVideoId,
-                onClick = { onVideoClick(video) }
-            )
-        }
-    }
-}
-
-@Composable
 fun VideoListItem(
     video: VideoItem,
     isPlaying: Boolean,
     onClick: () -> Unit
 ) {
-    ListItem(
-        headlineContent = {
-            Text(
-                text = video.title,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                color = if (isPlaying) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp, horizontal = 16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(100.dp)
+                .clip(RoundedCornerShape(8.dp))
+        ) {
+            AsyncImage(
+                model = video.thumbnailUri,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize()
+                    .size(90.dp)
+                    .clip(RoundedCornerShape(8.dp)),
+                contentScale = ContentScale.Crop
             )
-        },
-        supportingContent = {
-            Column {
-                Text(
-                    text = "${video.width} × ${video.height}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                )
-                Text(
-                    text = formatDuration(video.duration),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                )
-            }
-        },
-        leadingContent = {
-            Box(
-                modifier = Modifier
-                    .size(100.dp, 85.dp)
-                    .clip(RoundedCornerShape(8.dp))
-            ) {
-                AsyncImage(
-                    model = video.thumbnailUri,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-                if (isPlaying) {
+            if (isPlaying) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                ) {
                     Icon(
                         imageVector = Icons.Filled.PlayArrow,
                         contentDescription = "Playing",
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier
                             .align(Alignment.Center)
-                            .size(40.dp)
+                            .size(32.dp)
                     )
                 }
             }
-        },
-        modifier = Modifier.clickable(onClick = onClick)
-    )
-}
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(4.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                shape = RoundedCornerShape(4.dp)
+            ) {
+                Text(
+                    text = formatDuration(video.duration),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                )
+            }
+        }
 
-@Composable
-fun VideoGridView(
-    videoItems: List<VideoItem>,
-    currentVideoId: Long?,
-    onVideoClick: (VideoItem) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(videoItems, key = { it.id }) { video ->
-            VideoGridItem(
-                video = video,
-                isPlaying = video.id == currentVideoId,
-                onClick = { onVideoClick(video) }
+        Spacer(Modifier.width(12.dp))
+
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = video.title,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (isPlaying) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                }
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "${video.width} × ${video.height}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
             )
         }
     }
@@ -606,24 +583,41 @@ fun VideoGridItem(
             containerColor = if (isPlaying) {
                 MaterialTheme.colorScheme.primaryContainer
             } else {
-                MaterialTheme.colorScheme.surface
+                MaterialTheme.colorScheme.surfaceVariant
             }
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isPlaying) 4.dp else 1.dp
         )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
             AsyncImage(
                 model = video.thumbnailUri,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxSize()
+                    .size(100.dp)
+                    .clip(RoundedCornerShape(8.dp)),
                 contentScale = ContentScale.Crop
             )
 
-            // Duration badge
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(
+                                Color.Transparent,
+                                Color.Black.copy(alpha = 0.7f)
+                            )
+                        )
+                    )
+            )
+
             Surface(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
+                    .align(Alignment.TopEnd)
                     .padding(8.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
                 shape = RoundedCornerShape(4.dp)
             ) {
                 Text(
@@ -633,38 +627,35 @@ fun VideoGridItem(
                 )
             }
 
-            // Playing indicator
             if (isPlaying) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = "Playing",
-                    tint = MaterialTheme.colorScheme.primary,
+                Box(
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(48.dp)
-                )
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = "Playing",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(48.dp)
+                    )
+                }
             }
 
-            // Title overlay
-            Surface(
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .fillMaxWidth()
-                    .padding(8.dp),
-                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                shape = RoundedCornerShape(4.dp)
+                    .padding(8.dp)
             ) {
                 Text(
                     text = video.title,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(6.dp),
-                    color = if (isPlaying) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurface
-                    }
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = Color.White
                 )
             }
         }

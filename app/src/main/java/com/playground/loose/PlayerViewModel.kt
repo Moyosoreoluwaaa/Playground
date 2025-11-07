@@ -74,10 +74,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private val _videoViewMode = MutableStateFlow(ViewMode.LIST)
     val videoViewMode: StateFlow<ViewMode> = _videoViewMode.asStateFlow()
 
-    private val _audioSortOption = MutableStateFlow(SortOption.NAME)
+    private val _audioSortOption = MutableStateFlow(SortOption.NAME_ASC)
     val audioSortOption: StateFlow<SortOption> = _audioSortOption.asStateFlow()
 
-    private val _videoSortOption = MutableStateFlow(SortOption.NAME)
+    private val _videoSortOption = MutableStateFlow(SortOption.NAME_ASC)
     val videoSortOption: StateFlow<SortOption> = _videoSortOption.asStateFlow()
 
     private val _recentlyPlayedVideoIds = MutableStateFlow<List<Long>>(emptyList())

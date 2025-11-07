@@ -10,7 +10,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.loose.mediaplayer.ui.screen.VideoLibraryScreen
+import com.playground.loose.VideoLibraryScreen
 import com.loose.mediaplayer.ui.viewmodel.PlayerViewModel
 import com.playground.loose.AudioLibraryScreen
 import com.playground.loose.EnhancedAudioPlayerScreen
