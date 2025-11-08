@@ -1,3 +1,5 @@
+// Screen.kt - Updated LooseApp with proper MiniPlayer handling
+
 package com.loose.mediaplayer
 
 import android.util.Log
@@ -5,16 +7,15 @@ import androidx.annotation.OptIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
-import com.playground.loose.VideoLibraryScreen
+import com.playground.loose.*
 import com.loose.mediaplayer.ui.viewmodel.PlayerViewModel
-import com.playground.loose.AudioLibraryScreen
-import com.playground.loose.EnhancedAudioPlayerScreen
-import com.playground.loose.VideoPlayerScreen
+import kotlinx.coroutines.launch
 
 sealed class Screen(val route: String, val title: String) {
     object AudioLibrary : Screen("audio_library", "Audio")
@@ -27,6 +28,7 @@ sealed class Screen(val route: String, val title: String) {
 @Composable
 fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
     val navController = rememberNavController()
+    val coroutineScope = rememberCoroutineScope()
 
     // Collect playback and library states
     val audioItems by viewModel.audioItems.collectAsState()
@@ -42,6 +44,8 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
     val audioSortOption by viewModel.audioSortOption.collectAsState()
     val videoSortOption by viewModel.videoSortOption.collectAsState()
     val recentlyPlayedVideoIds by viewModel.recentlyPlayedVideoIds.collectAsState()
+    val isAudioMode by viewModel.isAudioMode.collectAsState()
+    val isVideoAsAudioMode by viewModel.isVideoAsAudioMode.collectAsState()
 
     NavHost(
         navController = navController,
@@ -51,7 +55,24 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
         composable(Screen.AudioLibrary.route) {
             AudioLibraryScreen(
                 viewModel = viewModel,
-                onNavigateToPlayer = { navController.navigate("audio_player") },
+                onNavigateToPlayer = {
+                    coroutineScope.launch {
+                        MiniPlayerHandler.handleMiniPlayerClick(
+                            viewModel = viewModel,
+                            currentAudio = currentAudio,
+                            currentVideo = currentVideo,
+                            isAudioMode = isAudioMode,
+                            isVideoAsAudioMode = isVideoAsAudioMode,
+                            player = viewModel.player,
+                            onNavigateToAudioPlayer = {
+                                navController.navigate(Screen.AudioPlayer.route)
+                            },
+                            onNavigateToVideoPlayer = {
+                                navController.navigate(Screen.VideoPlayer.route)
+                            }
+                        )
+                    }
+                },
                 navController = navController
             )
         }
@@ -70,7 +91,22 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
                 onViewModeChange = viewModel::setVideoViewMode,
                 onSortChange = viewModel::setVideoSort,
                 onNavigateToPlayer = {
-                    if (currentVideo != null) navController.navigate(Screen.VideoPlayer.route)
+                    coroutineScope.launch {
+                        MiniPlayerHandler.handleMiniPlayerClick(
+                            viewModel = viewModel,
+                            currentAudio = currentAudio,
+                            currentVideo = currentVideo,
+                            isAudioMode = isAudioMode,
+                            isVideoAsAudioMode = isVideoAsAudioMode,
+                            player = viewModel.player,
+                            onNavigateToAudioPlayer = {
+                                navController.navigate(Screen.AudioPlayer.route)
+                            },
+                            onNavigateToVideoPlayer = {
+                                navController.navigate(Screen.VideoPlayer.route)
+                            }
+                        )
+                    }
                 },
                 currentVideo = currentVideo,
                 isPlaying = isPlaying,
@@ -88,15 +124,9 @@ fun LooseApp(viewModel: PlayerViewModel = viewModel()) {
                 onBack = { navController.popBackStack() },
                 onNavigateToVideoPlayer = {
                     Log.d("Navigation", "🟢 onNavigateToVideoPlayer called from Audio Player")
-                    Log.d("Navigation", "🟢 Current route: ${navController.currentBackStackEntry?.destination?.route}")
-                    Log.d("Navigation", "🟢 Navigating to Video Player...")
-
                     navController.navigate(Screen.VideoPlayer.route) {
                         popUpTo(Screen.AudioPlayer.route) { inclusive = true }
                     }
-
-                    Log.d("Navigation", "🟢 Navigation completed")
-                    Log.d("Navigation", "🟢 New route: ${navController.currentBackStackEntry?.destination?.route}")
                 }
             )
         }

@@ -51,6 +51,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,6 +66,7 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.loose.mediaplayer.Screen
+import kotlinx.coroutines.launch
 
 enum class VideoFilter {
     ALL,
@@ -164,6 +166,7 @@ fun VideoLibraryScreen(
         bottomBar = {
             Column {
                 if (currentVideoId != null) {
+                    val coroutineScope = rememberCoroutineScope()
                     MiniPlayer(
                         currentAudio = null,
                         currentVideo = currentVideo,
@@ -172,7 +175,14 @@ fun VideoLibraryScreen(
                         onPlayPause = onPlayPause,
                         onShowQueue = {},
                         onNext = onNext,
-                        onClick = onNavigateToPlayer
+                        onClick = {
+                            coroutineScope.launch {
+                                // For video library, we need to pass the viewModel
+                                // This requires updating the VideoLibraryScreen signature
+                                // to accept viewModel parameter
+                                onNavigateToPlayer()
+                            }
+                        }
                     )
                 }
 

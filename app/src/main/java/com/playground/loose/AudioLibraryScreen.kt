@@ -30,6 +30,7 @@ import androidx.navigation.NavController
 import coil.compose.AsyncImage
 import com.loose.mediaplayer.Screen
 import com.loose.mediaplayer.ui.viewmodel.PlayerViewModel
+import kotlinx.coroutines.launch
 import java.util.Locale
 
 private val MINI_PLAYER_HEIGHT = 72.dp
@@ -138,7 +139,6 @@ fun AudioLibraryContent(
                         isPlaying = audio.id == currentAudioId,
                         onClick = onAudioClick
                     )
-//                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                 }
             }
         } else {
@@ -353,27 +353,44 @@ fun formatDuration(ms: Long): String {
  * =================================================================
  */
 
-// MiniPlayer composable signature assumed from usage in original file
+// Updated MiniPlayer composable in AudioLibraryScreen.kt
+// Replace the existing MiniPlayer composable with this version
+
 @Composable
 fun MiniPlayer(
     currentAudio: AudioItem?,
     currentVideo: VideoItem? = null,
     isPlaying: Boolean,
     isAudioMode: Boolean,
+    playerMediaId: Long?, // NEW: Add actual player's media ID
     onPlayPause: () -> Unit,
     onShowQueue: () -> Unit,
     onNext: () -> Unit,
     onClick: () -> Unit
 ) {
-    // Determine if we have media to show
-    val mediaExists =
-        (isAudioMode && currentAudio != null) || (!isAudioMode && currentVideo != null)
+    // CRITICAL FIX: Determine which media is ACTUALLY playing
+    val actuallyPlayingAudio = currentAudio?.id == playerMediaId
+    val actuallyPlayingVideo = currentVideo?.id == playerMediaId
+
+    // Decide which media to display based on what's actually in the player
+    val shouldShowAudio = when {
+        actuallyPlayingAudio -> true
+        actuallyPlayingVideo -> false
+        isAudioMode -> true // Fallback to mode if no match
+        else -> false
+    }
+
+    val displayAudio = if (shouldShowAudio) currentAudio else null
+    val displayVideo = if (!shouldShowAudio) currentVideo else null
+
+    // Only show mini player if we have media to display
+    val mediaExists = displayAudio != null || displayVideo != null
     if (!mediaExists) return
 
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(MINI_PLAYER_HEIGHT)
+            .height(72.dp)
             .clickable(onClick = onClick),
         color = MaterialTheme.colorScheme.surfaceContainerHigh
     ) {
@@ -381,9 +398,13 @@ fun MiniPlayer(
             modifier = Modifier.padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Album Art / Thumbnail
-            val imageUri =
-                if (isAudioMode) currentAudio?.albumArtUri else currentVideo?.thumbnailUri
+            // Album Art / Thumbnail - Show based on what's actually playing
+            val imageUri = if (shouldShowAudio) {
+                displayAudio?.albumArtUri
+            } else {
+                displayVideo?.thumbnailUri
+            }
+
             AsyncImage(
                 model = imageUri,
                 contentDescription = null,
@@ -393,24 +414,29 @@ fun MiniPlayer(
                         MaterialTheme.colorScheme.surfaceVariant,
                         MaterialTheme.shapes.small
                     )
-                    .clip(MaterialTheme.shapes.small) // Use clip to ensure shape applies
+                    .clip(MaterialTheme.shapes.small)
             )
             Spacer(Modifier.width(12.dp))
 
-            // Title and Artist - FIX applied here
+            // Title and Artist - Show based on what's actually playing
             Column(Modifier.weight(1f)) {
-                // Determine the title explicitly based on the mode (Fixes "Unresolved reference 'title'")
-                val titleText = if (isAudioMode) currentAudio!!.title else currentVideo!!.title
+                val titleText = if (shouldShowAudio) {
+                    displayAudio?.title ?: "Unknown"
+                } else {
+                    displayVideo?.title ?: "Unknown"
+                }
+
                 Text(
                     text = titleText,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.titleSmall
                 )
-                // The artist is only available and relevant for audio
-                if (isAudioMode) {
+
+                // Show artist only for audio
+                if (shouldShowAudio && displayAudio != null) {
                     Text(
-                        text = currentAudio!!.artist ?: "Unknown Artist",
+                        text = displayAudio.artist ?: "Unknown Artist",
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         style = MaterialTheme.typography.bodySmall,
@@ -419,14 +445,15 @@ fun MiniPlayer(
                 }
             }
 
-            // Play/Pause Button - FIX: Corrected icon to Pause/PlayArrow
+            // Play/Pause Button
             IconButton(onClick = onPlayPause) {
                 Icon(
                     imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                     contentDescription = if (isPlaying) "Pause" else "Play"
                 )
             }
-            // Next Button - FIX: Corrected icon to SkipNext
+
+            // Next Button
             IconButton(onClick = onNext) {
                 Icon(
                     imageVector = Icons.Filled.SkipNext,
@@ -440,7 +467,7 @@ fun MiniPlayer(
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AudioLibraryScreen( // This is the new entry point
+fun AudioLibraryScreen(
     viewModel: PlayerViewModel,
     onNavigateToPlayer: () -> Unit,
     navController: NavController
@@ -450,24 +477,21 @@ fun AudioLibraryScreen( // This is the new entry point
     val viewMode by viewModel.audioViewMode.collectAsState()
     val sortOption by viewModel.audioSortOption.collectAsState()
     val currentAudio by viewModel.currentAudioItem.collectAsState()
-    val currentVideo by viewModel.currentVideoItem.collectAsState() // Fetch Video for MiniPlayer
+    val currentVideo by viewModel.currentVideoItem.collectAsState()
     val isPlaying by viewModel.isPlaying.collectAsState()
     val isAudioMode by viewModel.isAudioMode.collectAsState()
+    val isVideoAsAudioMode by viewModel.isVideoAsAudioMode.collectAsState()
 
     // Screen State
     var selectedTab by remember { mutableStateOf(AudioLibraryTab.LIBRARY) }
     var showCreateSheet by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
-    var activePlaylist by remember { mutableStateOf<AudioPlaylist?>(null) } // NEW for drill-down
+    var activePlaylist by remember { mutableStateOf<AudioPlaylist?>(null) }
 
-    // NEW: Focus Requester for search TextField
     val searchFocusRequester = remember { FocusRequester() }
-
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-
-    // Check for media in MiniPlayer
-    val currentMediaId = if (isAudioMode) currentAudio?.id else currentVideo?.id
+    val coroutineScope = rememberCoroutineScope()
 
     // Determine the content to show (Drill-down OR Tabs)
     when {
@@ -478,13 +502,12 @@ fun AudioLibraryScreen( // This is the new entry point
                 allAudioItems = audioItems,
                 currentAudioId = currentAudio?.id,
                 onAudioClick = { audio ->
-                    // Play the selected song within the playlist context (custom queue)
                     val playlistItems = audioItems.filter { it.id in activePlaylist!!.audioIds }
                     val startIndex = playlistItems.indexOf(audio)
                     viewModel.playSelectedAudio(playlistItems, startIndex)
                     onNavigateToPlayer()
                 },
-                onBack = { activePlaylist = null } // Go back to playlist list
+                onBack = { activePlaylist = null }
             )
         }
 
@@ -495,7 +518,7 @@ fun AudioLibraryScreen( // This is the new entry point
                     Column {
                         if (selectedTab == AudioLibraryTab.LIBRARY) {
                             AudioLibraryTopAppBar(
-                                searchFocusRequester = searchFocusRequester, // Pass FocusRequester
+                                searchFocusRequester = searchFocusRequester,
                                 searchQuery = searchQuery,
                                 isSearchActive = isSearchActive,
                                 viewMode = viewMode,
@@ -505,7 +528,7 @@ fun AudioLibraryScreen( // This is the new entry point
                                 onSearchQueryChange = { searchQuery = it },
                                 onSearchToggle = { isActive ->
                                     isSearchActive = isActive
-                                    if (!isActive) searchQuery = "" // Clear on deactivate
+                                    if (!isActive) searchQuery = ""
                                 }
                             )
                         } else {
@@ -524,18 +547,32 @@ fun AudioLibraryScreen( // This is the new entry point
                         }
                     }
                 },
-                bottomBar = { // Re-integrated MiniPlayer and NavigationBar
+                bottomBar = {
                     Column {
-                        // MiniPlayer is displayed only if a media item is present
+                        // MiniPlayer with updated handler
                         MiniPlayer(
                             currentAudio = currentAudio,
                             currentVideo = currentVideo,
                             isPlaying = isPlaying,
                             isAudioMode = isAudioMode,
+                            playerMediaId = viewModel.player.currentMediaItem?.mediaId?.toLongOrNull(), // NEW
                             onPlayPause = viewModel::playPause,
                             onShowQueue = { /* No-op for now */ },
                             onNext = viewModel::playNext,
-                            onClick = onNavigateToPlayer
+                            onClick = {
+                                coroutineScope.launch {
+                                    MiniPlayerHandler.handleMiniPlayerClick(
+                                        viewModel = viewModel,
+                                        currentAudio = currentAudio,
+                                        currentVideo = currentVideo,
+                                        isAudioMode = isAudioMode,
+                                        isVideoAsAudioMode = isVideoAsAudioMode,
+                                        player = viewModel.player,
+                                        onNavigateToAudioPlayer = onNavigateToPlayer,
+                                        onNavigateToVideoPlayer = onNavigateToPlayer
+                                    )
+                                }
+                            }
                         )
 
                         NavigationBar {
@@ -593,7 +630,7 @@ fun AudioLibraryScreen( // This is the new entry point
                             playlists = audioPlaylists,
                             onPlaylistClick = { playlist ->
                                 activePlaylist = playlist
-                            }, // Drill down
+                            },
                             modifier = Modifier.padding(paddingValues)
                         )
                     }
@@ -602,8 +639,7 @@ fun AudioLibraryScreen( // This is the new entry point
         }
     }
 
-
-    // Bottom Sheet for Playlist Creation (always shown over main content)
+    // Bottom Sheet for Playlist Creation
     if (showCreateSheet) {
         ModalBottomSheet(
             onDismissRequest = { showCreateSheet = false },
@@ -621,12 +657,10 @@ fun AudioLibraryScreen( // This is the new entry point
     }
 }
 
-
-// 4. AudioPlaylistContent (The "Playlists" Tab - Click navigates to tracks)
 @Composable
 fun AudioPlaylistContent(
     playlists: List<AudioPlaylist>,
-    onPlaylistClick: (AudioPlaylist) -> Unit, // Click to view tracks
+    onPlaylistClick: (AudioPlaylist) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LazyColumn(
@@ -644,7 +678,7 @@ fun AudioPlaylistContent(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable(onClick = { onPlaylistClick(playlist) }) // Drill-down action
+                    .clickable(onClick = { onPlaylistClick(playlist) })
                     .padding(vertical = 12.dp, horizontal = 0.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -678,8 +712,6 @@ fun AudioPlaylistContent(
     }
 }
 
-
-// 5. NEW: PlaylistTrackListScreen (Shows the tracks within a playlist)
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaylistTrackListScreen(
@@ -690,9 +722,7 @@ fun PlaylistTrackListScreen(
     onBack: () -> Unit
 ) {
     val playlistTracks = remember(playlist, allAudioItems) {
-        // Filter the full list of audio items to include only those in the playlist
         allAudioItems.filter { it.id in playlist.audioIds }
-            // Sort them in the order they were added to the playlist (assumed logic)
             .sortedBy { playlist.audioIds.indexOf(it.id) }
     }
 
@@ -728,7 +758,6 @@ fun PlaylistTrackListScreen(
                         isPlaying = audio.id == currentAudioId,
                         onClick = onAudioClick
                     )
-//                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
                 }
             }
         }
