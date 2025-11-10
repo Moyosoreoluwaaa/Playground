@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,10 +15,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -36,8 +33,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -46,11 +41,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -66,19 +64,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
-import com.playground.loose.Screen
 import com.playground.loose.LibrarySearchBar
 import com.playground.loose.MiniPlayer
+import com.playground.loose.Screen
 import com.playground.loose.SortOption
+import com.playground.loose.VideoFilter
 import com.playground.loose.VideoItem
 import com.playground.loose.ViewMode
 import com.playground.loose.formatDuration
-
-enum class VideoFilter {
-    ALL,      // All videos
-    SHORTS,   // Portrait videos < 4 minutes
-    FULL      // Everything else
-}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -87,7 +80,7 @@ fun VideoLibraryScreen(
     currentVideoId: Long?,
     viewMode: ViewMode,
     sortOption: SortOption,
-    onVideoClick: (VideoItem) -> Unit,
+    onVideoClick: (VideoItem, VideoFilter) -> Unit, // NEW: Pass filter context
     onViewModeChange: (ViewMode) -> Unit,
     onSortChange: (SortOption) -> Unit,
     onNavigateToPlayer: () -> Unit,
@@ -96,31 +89,71 @@ fun VideoLibraryScreen(
     onPlayPause: () -> Unit = {},
     onNext: () -> Unit = {},
     recentlyPlayedIds: List<Long> = emptyList(),
-    navController: NavController
+    navController: NavController,
+    lastSelectedFilter: VideoFilter = VideoFilter.ALL, // NEW: Restore last tab
+    onFilterChange: (VideoFilter) -> Unit = {} // NEW: Save filter changes
 ) {
     var showSortMenu by remember { mutableStateOf(false) }
-    var selectedFilter by remember { mutableStateOf(VideoFilter.ALL) }
+    var selectedTabIndex by remember { mutableIntStateOf(lastSelectedFilter.ordinal) }
     var searchQuery by remember { mutableStateOf("") }
     var isSearchActive by remember { mutableStateOf(false) }
 
-    // NEW: Focus Requester for search TextField
     val searchFocusRequester = remember { FocusRequester() }
 
-    // Filter + Search logic
-    val processedVideos = remember(videoItems, selectedFilter, searchQuery) {
-        val filtered = when (selectedFilter) {
+    // Categorize videos
+    val allVideos = remember(videoItems) { videoItems }
+    val shortsVideos = remember(videoItems) {
+        videoItems.filter { it.height > it.width && it.duration < 240000 }
+    }
+    val fullVideos = remember(videoItems) {
+        videoItems.filter { it.height <= it.width || it.duration >= 240000 }
+    }
+
+    // Get current tab's videos
+    val currentTabVideos = remember(selectedTabIndex, videoItems) {
+        when (selectedTabIndex) {
+            0 -> allVideos
+            1 -> shortsVideos
+            2 -> fullVideos
+            else -> allVideos
+        }
+    }
+
+    // Get current filter enum
+    val currentFilter = remember(selectedTabIndex) {
+        when (selectedTabIndex) {
+            0 -> VideoFilter.ALL
+            1 -> VideoFilter.SHORTS
+            2 -> VideoFilter.FULL
+            else -> VideoFilter.ALL
+        }
+    }
+
+    // Apply search filter (searches across all videos regardless of tab)
+    val displayVideos = remember(currentTabVideos, searchQuery) {
+        if (searchQuery.isBlank()) {
+            currentTabVideos
+        } else {
+            // Search across ALL videos, not just current tab
+            videoItems.filter { it.title.contains(searchQuery, true) }
+        }
+    }
+
+    // Filter recently played by current tab
+    val recentVideos = remember(videoItems, recentlyPlayedIds, currentFilter) {
+        val filteredByTab = when (currentFilter) {
             VideoFilter.ALL -> videoItems
             VideoFilter.SHORTS -> videoItems.filter { it.height > it.width && it.duration < 240000 }
             VideoFilter.FULL -> videoItems.filter { it.height <= it.width || it.duration >= 240000 }
         }
-        if (searchQuery.isBlank()) filtered else filtered.filter {
-            it.title.contains(searchQuery, true)
-        }
+        recentlyPlayedIds.take(10)
+            .mapNotNull { id -> filteredByTab.find { it.id == id } }
     }
 
-    val recentVideos = remember(videoItems, recentlyPlayedIds) {
-        recentlyPlayedIds.take(10).mapNotNull { id -> videoItems.find { it.id == id } }
-    }
+    // Independent scroll states for each tab
+    val allScrollState = rememberLazyListState()
+    val shortsScrollState = rememberLazyListState()
+    val fullScrollState = rememberLazyListState()
 
     Scaffold(
         topBar = {
@@ -128,7 +161,6 @@ fun VideoLibraryScreen(
                 TopAppBar(
                     title = {
                         if (isSearchActive) {
-                            // Use the new reusable search bar component
                             LibrarySearchBar(
                                 searchQuery = searchQuery,
                                 onSearchQueryChange = { searchQuery = it },
@@ -142,7 +174,6 @@ fun VideoLibraryScreen(
                     },
                     actions = {
                         if (!isSearchActive) {
-                            // Search Button (sets isSearchActive=true, triggering LaunchedEffect)
                             IconButton(onClick = { isSearchActive = true }) {
                                 Icon(Icons.Filled.Search, contentDescription = "Search")
                             }
@@ -181,19 +212,45 @@ fun VideoLibraryScreen(
                     }
                 )
 
+                // Tab Row - Only show when not searching
                 if (!isSearchActive) {
-                    VideoFilterTabs(
-                        selectedFilter = selectedFilter,
-                        onFilterSelected = { selectedFilter = it },
-                        shortsCount = videoItems.count { it.height > it.width && it.duration < 240000 },
-                        fullCount = videoItems.count { it.height <= it.width || it.duration >= 240000 }
-                    )
+                    ScrollableTabRow(
+                        selectedTabIndex = selectedTabIndex,
+                        edgePadding = 16.dp
+                    ) {
+                        Tab(
+                            selected = selectedTabIndex == 0,
+                            onClick = {
+                                selectedTabIndex = 0
+                                onFilterChange(VideoFilter.ALL)
+                            },
+                            text = { Text("All (${allVideos.size})") },
+                            icon = { Icon(Icons.Filled.VideoLibrary, null, Modifier.size(20.dp)) }
+                        )
+                        Tab(
+                            selected = selectedTabIndex == 1,
+                            onClick = {
+                                selectedTabIndex = 1
+                                onFilterChange(VideoFilter.SHORTS)
+                            },
+                            text = { Text("Shorts (${shortsVideos.size})") },
+                            icon = { Icon(Icons.Filled.PhoneAndroid, null, Modifier.size(20.dp)) }
+                        )
+                        Tab(
+                            selected = selectedTabIndex == 2,
+                            onClick = {
+                                selectedTabIndex = 2
+                                onFilterChange(VideoFilter.FULL)
+                            },
+                            text = { Text("Full (${fullVideos.size})") },
+                            icon = { Icon(Icons.Filled.Movie, null, Modifier.size(20.dp)) }
+                        )
+                    }
                 }
             }
         },
         bottomBar = {
             Column {
-                // Mini Player
                 if (currentVideoId != null) {
                     MiniPlayer(
                         currentAudio = null,
@@ -207,7 +264,6 @@ fun VideoLibraryScreen(
                     )
                 }
 
-                // Bottom Navigation Bar
                 NavigationBar {
                     NavigationBarItem(
                         icon = { Icon(Icons.Filled.MusicNote, null) },
@@ -235,18 +291,27 @@ fun VideoLibraryScreen(
             }
         }
     ) { padding ->
+        // Content - Use different scroll state for each tab
+        val currentScrollState = when (selectedTabIndex) {
+            0 -> allScrollState
+            1 -> shortsScrollState
+            2 -> fullScrollState
+            else -> allScrollState
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
+            state = currentScrollState,
             contentPadding = PaddingValues(bottom = 80.dp)
         ) {
-            // Recently played
+            // Recently played section - only if not searching
             if (recentVideos.isNotEmpty() && searchQuery.isBlank()) {
                 item {
                     Column(Modifier.fillMaxWidth()) {
                         Text(
-                            "Recently Played",
+                            "Recently Played (${currentFilter.name.lowercase().replaceFirstChar { it.uppercase() }})",
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
                         )
@@ -256,7 +321,7 @@ fun VideoLibraryScreen(
                         ) {
                             items(recentVideos, key = { it.id }) { video ->
                                 RecentVideoCard(video, video.id == currentVideoId) {
-                                    onVideoClick(video)
+                                    onVideoClick(video, currentFilter)
                                 }
                             }
                         }
@@ -266,7 +331,7 @@ fun VideoLibraryScreen(
             }
 
             // Video list/grid
-            if (processedVideos.isEmpty()) {
+            if (displayVideos.isEmpty()) {
                 item {
                     Box(
                         modifier = Modifier
@@ -281,96 +346,18 @@ fun VideoLibraryScreen(
                     }
                 }
             } else {
-                items(processedVideos, key = { it.id }) { video ->
+                items(displayVideos, key = { it.id }) { video ->
                     if (viewMode == ViewMode.LIST)
-                        VideoListItem(video, video.id == currentVideoId) { onVideoClick(video) }
+                        VideoListItem(video, video.id == currentVideoId) {
+                            onVideoClick(video, currentFilter)
+                        }
                     else
-                        VideoGridItem(video, video.id == currentVideoId) { onVideoClick(video) }
+                        VideoGridItem(video, video.id == currentVideoId) {
+                            onVideoClick(video, currentFilter)
+                        }
                 }
             }
         }
-    }
-}
-
-
-@Composable
-fun VideoFilterTabs(
-    selectedFilter: VideoFilter,
-    onFilterSelected: (VideoFilter) -> Unit,
-    shortsCount: Int,
-    fullCount: Int
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        FilterChip(
-            selected = selectedFilter == VideoFilter.ALL,
-            onClick = { onFilterSelected(VideoFilter.ALL) },
-            label = {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.VideoLibrary,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text("All")
-                }
-            },
-            colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        )
-
-        FilterChip(
-            selected = selectedFilter == VideoFilter.SHORTS,
-            onClick = { onFilterSelected(VideoFilter.SHORTS) },
-            label = {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.PhoneAndroid,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text("Shorts ($shortsCount)")
-                }
-            },
-            colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        )
-
-        FilterChip(
-            selected = selectedFilter == VideoFilter.FULL,
-            onClick = { onFilterSelected(VideoFilter.FULL) },
-            label = {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Movie,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text("Full ($fullCount)")
-                }
-            },
-            colors = FilterChipDefaults.filterChipColors(
-                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
-            )
-        )
     }
 }
 
@@ -401,7 +388,6 @@ fun RecentVideoCard(
                 contentScale = ContentScale.Crop
             )
 
-            // Gradient overlay at bottom
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -416,7 +402,6 @@ fun RecentVideoCard(
                     )
             )
 
-            // Duration badge
             Surface(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -431,7 +416,6 @@ fun RecentVideoCard(
                 )
             }
 
-            // Playing indicator
             if (isPlaying) {
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
@@ -443,7 +427,6 @@ fun RecentVideoCard(
                 )
             }
 
-            // Title at bottom
             Text(
                 text = video.title,
                 maxLines = 2,
@@ -453,27 +436,6 @@ fun RecentVideoCard(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(8.dp)
-            )
-        }
-    }
-}
-
-@Composable
-fun VideoListView(
-    videoItems: List<VideoItem>,
-    currentVideoId: Long?,
-    onVideoClick: (VideoItem) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    LazyColumn(
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(8.dp)
-    ) {
-        items(videoItems, key = { it.id }) { video ->
-            VideoListItem(
-                video = video,
-                isPlaying = video.id == currentVideoId,
-                onClick = { onVideoClick(video) }
             )
         }
     }
@@ -541,30 +503,6 @@ fun VideoListItem(
 }
 
 @Composable
-fun VideoGridView(
-    videoItems: List<VideoItem>,
-    currentVideoId: Long?,
-    onVideoClick: (VideoItem) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(2),
-        modifier = modifier.fillMaxSize(),
-        contentPadding = PaddingValues(8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items(videoItems, key = { it.id }) { video ->
-            VideoGridItem(
-                video = video,
-                isPlaying = video.id == currentVideoId,
-                onClick = { onVideoClick(video) }
-            )
-        }
-    }
-}
-
-@Composable
 fun VideoGridItem(
     video: VideoItem,
     isPlaying: Boolean,
@@ -591,7 +529,6 @@ fun VideoGridItem(
                 contentScale = ContentScale.Crop
             )
 
-            // Duration badge
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
@@ -606,7 +543,6 @@ fun VideoGridItem(
                 )
             }
 
-            // Playing indicator
             if (isPlaying) {
                 Icon(
                     imageVector = Icons.Filled.PlayArrow,
@@ -618,7 +554,6 @@ fun VideoGridItem(
                 )
             }
 
-            // Title overlay
             Surface(
                 modifier = Modifier
                     .align(Alignment.BottomStart)

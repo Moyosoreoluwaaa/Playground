@@ -42,13 +42,27 @@ class MediaQueueManager {
     }
 
     /**
+     * NEW: Build queue from filtered video items (based on current tab)
+     */
+    fun buildFilteredVideoQueue(
+        filteredVideos: List<VideoItem>,
+        currentVideo: VideoItem,
+        filterType: VideoFilter
+    ) {
+        val queue = filteredVideos.map { MediaItemInfo(it.id, it.title, false) }
+        _currentQueue.value = queue
+        _currentQueueIndex.value = filteredVideos.indexOfFirst { it.id == currentVideo.id }.coerceAtLeast(0)
+        Log.d(TAG, "🎬 Filtered video queue built: ${queue.size} items (filter: $filterType)")
+    }
+
+    /**
      * Build queue from audio playlist
      */
     fun buildPlaylistQueue(playlist: List<AudioItem>, startIndex: Int = 0) {
         val queue = playlist.map { MediaItemInfo(it.id, it.title, true) }
         _currentQueue.value = queue
         _currentQueueIndex.value = startIndex
-        Log.d(TAG, "📀 Playlist queue built: ${queue.size} items, start=$startIndex")
+        Log.d(TAG, "💿 Playlist queue built: ${queue.size} items, start=$startIndex")
     }
 
     /**

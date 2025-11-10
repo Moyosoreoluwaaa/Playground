@@ -28,7 +28,6 @@ class VideoPlayerViewModel(
         private const val TAG = "VideoPlayerViewModel"
     }
 
-    // CRITICAL FIX: Expose the player instance
     fun getPlayer(): Player = player
 
     // ============ Managers ============
@@ -53,6 +52,13 @@ class VideoPlayerViewModel(
 
     private val _recentlyPlayedVideoIds = MutableStateFlow<List<Long>>(emptyList())
     val recentlyPlayedVideoIds: StateFlow<List<Long>> = _recentlyPlayedVideoIds.asStateFlow()
+
+    // NEW: Track current filter context for queue
+    private val _currentFilterContext = MutableStateFlow(VideoFilter.ALL)
+    val currentFilterContext: StateFlow<VideoFilter> = _currentFilterContext.asStateFlow()
+
+    private val _lastSelectedFilter = MutableStateFlow(VideoFilter.ALL)
+    val lastSelectedFilter: StateFlow<VideoFilter> = _lastSelectedFilter.asStateFlow()
 
     // ============ UI State ============
     private val _videoViewMode = MutableStateFlow(ViewMode.LIST)
@@ -81,7 +87,6 @@ class VideoPlayerViewModel(
         loadVideoItems()
     }
 
-    // CRITICAL FIX: Make setupPlayerListener public so it can be called when needed
     fun setupPlayerListener() {
         if (hasSetupListener) {
             Log.d(TAG, "⚠️ Player listener already set up, skipping")
@@ -121,15 +126,22 @@ class VideoPlayerViewModel(
     // VIDEO PLAYBACK FUNCTIONS
     // ============================================
 
-    fun playVideo(video: VideoItem, autoPlay: Boolean = true) {
+    /**
+     * NEW: Play video with filter context for queue building
+     */
+    fun playVideo(
+        video: VideoItem,
+        autoPlay: Boolean = true,
+        filterContext: VideoFilter = VideoFilter.ALL
+    ) {
         if (lastPlayedVideoId == video.id && _currentVideoItem.value?.id == video.id && !autoPlay) {
             Log.d(TAG, "⏭️ Ignoring duplicate playVideo call")
             return
         }
 
         lastPlayedVideoId = video.id
+        _currentFilterContext.value = filterContext
 
-        // Ensure listener is set up before playback
         setupPlayerListener()
 
         viewModelScope.launch {
@@ -141,9 +153,12 @@ class VideoPlayerViewModel(
                 _currentVideoItem.value = video
                 videoAsAudioManager.disableVideoAsAudioMode()
 
-                queueManager.buildVideoQueue(_videoItems.value, video)
+                // Build queue based on filter context
+                val filteredVideos = getFilteredVideos(filterContext)
+                queueManager.buildFilteredVideoQueue(filteredVideos, video, filterContext)
 
-                // Add to recently played
+                Log.d(TAG, "🎬 Playing video with filter: $filterContext (queue: ${filteredVideos.size} items)")
+
                 preferencesManager.addRecentlyPlayedVideo(video.id)
                 _recentlyPlayedVideoIds.value =
                     preferencesManager.appPreferences.first().recentlyPlayedVideos.map { it.videoId }
@@ -154,6 +169,21 @@ class VideoPlayerViewModel(
                     isAudioMode = false,
                     force = true
                 )
+            }
+        }
+    }
+
+    /**
+     * NEW: Get filtered videos based on filter type
+     */
+    private fun getFilteredVideos(filter: VideoFilter): List<VideoItem> {
+        return when (filter) {
+            VideoFilter.ALL -> _videoItems.value
+            VideoFilter.SHORTS -> _videoItems.value.filter {
+                it.height > it.width && it.duration < 240000
+            }
+            VideoFilter.FULL -> _videoItems.value.filter {
+                it.height <= it.width || it.duration >= 240000
             }
         }
     }
@@ -196,8 +226,10 @@ class VideoPlayerViewModel(
     fun playNext() {
         val nextItem = queueManager.getNextItem()
         if (nextItem?.isAudio == false) {
-            _videoItems.value.find { it.id == nextItem.id }?.let {
-                playVideo(it, autoPlay = true)
+            // Find video in filtered list
+            val filteredVideos = getFilteredVideos(_currentFilterContext.value)
+            filteredVideos.find { it.id == nextItem.id }?.let {
+                playVideo(it, autoPlay = true, filterContext = _currentFilterContext.value)
             }
         }
     }
@@ -205,8 +237,9 @@ class VideoPlayerViewModel(
     fun playPrevious() {
         val prevItem = queueManager.getPreviousItem()
         if (prevItem?.isAudio == false) {
-            _videoItems.value.find { it.id == prevItem.id }?.let {
-                playVideo(it, autoPlay = true)
+            val filteredVideos = getFilteredVideos(_currentFilterContext.value)
+            filteredVideos.find { it.id == prevItem.id }?.let {
+                playVideo(it, autoPlay = true, filterContext = _currentFilterContext.value)
             }
         }
     }
@@ -263,6 +296,16 @@ class VideoPlayerViewModel(
         }
     }
 
+    /**
+     * NEW: Save selected filter tab
+     */
+    fun setVideoFilter(filter: VideoFilter) {
+        _lastSelectedFilter.value = filter
+        viewModelScope.launch {
+            preferencesManager.saveVideoFilterTab(filter)
+        }
+    }
+
     // ============================================
     // INTERNAL HELPERS
     // ============================================
@@ -287,6 +330,7 @@ class VideoPlayerViewModel(
             .onEach { prefs ->
                 _videoViewMode.value = prefs.videoViewMode
                 _videoSortOption.value = prefs.videoSortOption
+                _lastSelectedFilter.value = prefs.lastVideoFilter
                 repeatModeManager.setRepeatMode(prefs.lastPlaybackState.repeatMode)
                 _recentlyPlayedVideoIds.value = prefs.recentlyPlayedVideos.map { it.videoId }
                 _videoPositions.value = prefs.videoPositions

@@ -45,6 +45,7 @@ fun LooseApp(sharedViewModel: SharedMediaViewModel = viewModel()) {
     val videoSortOption by videoViewModel.videoSortOption.collectAsState()
     val recentlyPlayedVideoIds by videoViewModel.recentlyPlayedVideoIds.collectAsState()
     val isVideoAsAudioMode by videoViewModel.isVideoAsAudioMode.collectAsState()
+    val lastVideoFilter by videoViewModel.lastSelectedFilter.collectAsState()
 
     // Shared state
     val isAudioMode by sharedViewModel.isAudioMode.collectAsState()
@@ -76,8 +77,8 @@ fun LooseApp(sharedViewModel: SharedMediaViewModel = viewModel()) {
                 currentVideoId = currentVideo?.id,
                 viewMode = videoViewMode,
                 sortOption = videoSortOption,
-                onVideoClick = { video ->
-                    videoViewModel.playVideo(video, autoPlay = true)
+                onVideoClick = { video, filterContext ->
+                    videoViewModel.playVideo(video, autoPlay = true, filterContext = filterContext)
                     sharedViewModel.switchToVideoMode()
                     navController.navigate(Screen.VideoPlayer.route)
                 },
@@ -94,7 +95,9 @@ fun LooseApp(sharedViewModel: SharedMediaViewModel = viewModel()) {
                 onPlayPause = videoViewModel::playPause,
                 onNext = videoViewModel::playNext,
                 recentlyPlayedIds = recentlyPlayedVideoIds,
-                navController = navController
+                navController = navController,
+                lastSelectedFilter = lastVideoFilter,
+                onFilterChange = videoViewModel::setVideoFilter
             )
         }
 
@@ -115,10 +118,10 @@ fun LooseApp(sharedViewModel: SharedMediaViewModel = viewModel()) {
             )
         }
 
-        // 📺 Video Player - CRITICAL FIX: Use player from videoViewModel
+        // 📺 Video Player
         composable(Screen.VideoPlayer.route) {
             VideoPlayerScreen(
-                player = videoViewModel.getPlayer(), // FIXED: Use the same player instance that videoViewModel controls
+                player = videoViewModel.getPlayer(),
                 viewModel = videoViewModel,
                 currentVideo = currentVideo,
                 isPlaying = videoIsPlaying,

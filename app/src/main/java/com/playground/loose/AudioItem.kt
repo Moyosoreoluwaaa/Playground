@@ -81,7 +81,8 @@ data class AppPreferences(
     val recentlyPlayedVideos: List<RecentlyPlayedVideo> = emptyList(),
     // *** NEW: Store maps of saved positions ***
     val audioPositions: Map<Long, Long> = emptyMap(),
-    val videoPositions: Map<Long, Long> = emptyMap()
+    val videoPositions: Map<Long, Long> = emptyMap(),
+    val lastVideoFilter: VideoFilter = VideoFilter.ALL // NEW FIELD
 )
 
 enum class AppTheme {
