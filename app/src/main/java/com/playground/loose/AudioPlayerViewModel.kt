@@ -2,10 +2,11 @@ package com.playground.loose
 
 import android.app.Application
 import android.util.Log
+import androidx.annotation.OptIn
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
-import com.loose.mediaplayer.playback.AudioPlaybackManager
+import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,10 +19,13 @@ import kotlinx.coroutines.launch
  * ViewModel specifically for Audio playback
  * Handles: Audio library, playlists, and audio-only features
  */
-class AudioPlayerViewModel(
+@OptIn(UnstableApi::class)
+class AudioPlayerViewModel
+    (
     application: Application,
     private val player: Player,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val sharedViewModel: SharedMediaViewModel // NEW: Reference to parent
 ) : AndroidViewModel(application) {
 
     companion object {
@@ -109,6 +113,16 @@ class AudioPlayerViewModel(
                     handlePlaybackEnded()
                 }
             }
+
+            override fun onMediaItemTransition(
+                mediaItem: androidx.media3.common.MediaItem?,
+                reason: Int
+            ) {
+                // Update current audio from player when auto-advancing
+                if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO) {
+                    updateCurrentAudioFromPlayer()
+                }
+            }
         })
     }
 
@@ -116,7 +130,10 @@ class AudioPlayerViewModel(
     // AUDIO PLAYBACK FUNCTIONS
     // ============================================
 
-    fun playAudio(audio: AudioItem, autoPlay: Boolean = true) {
+    fun playAudio(
+        audio: AudioItem,
+        autoPlay: Boolean = true
+    ) {
         if (lastPlayedAudioId == audio.id && _currentAudioItem.value?.id == audio.id && !autoPlay) {
             Log.d(TAG, "⏭️ Ignoring duplicate playAudio call")
             return
@@ -126,12 +143,31 @@ class AudioPlayerViewModel(
 
         viewModelScope.launch {
             val savedPosition = _audioPositions.value[audio.id] ?: 0L
+            val currentRepeatMode = repeatModeManager.getCurrentRepeatMode()
 
-            val success = audioManager.playSingleAudio(audio, savedPosition, autoPlay)
+            // FIXED: Load full queue when RepeatMode.ALL
+            val success = if (currentRepeatMode == RepeatMode.ALL) {
+                val allAudio = _audioItems.value
+                val startIndex = allAudio.indexOfFirst { it.id == audio.id }.coerceAtLeast(0)
+
+                audioManager.playAudioPlaylist(
+                    playlist = allAudio,
+                    startIndex = startIndex,
+                    savedPosition = savedPosition,
+                    repeatMode = Player.REPEAT_MODE_ALL
+                )
+            } else {
+                audioManager.playSingleAudio(
+                    audio = audio,
+                    savedPosition = savedPosition,
+                    autoPlay = autoPlay,
+                    repeatMode = currentRepeatMode.toPlayerRepeatMode()
+                )
+            }
 
             if (success) {
                 _currentAudioItem.value = audio
-                _isPlaylistMode.value = false
+                _isPlaylistMode.value = (currentRepeatMode == RepeatMode.ALL)
 
                 queueManager.buildAudioQueue(_audioItems.value, audio)
 
@@ -186,12 +222,20 @@ class AudioPlayerViewModel(
     }
 
     fun playNext() {
-        if (_isPlaylistMode.value && player.mediaItemCount > 1) {
-            audioManager.playNextAudio()
-            updateCurrentAudioFromPlayer()
+        if (player.mediaItemCount > 1) {
+            // Player has a queue, use built-in navigation
+            if (player.hasNextMediaItem()) {
+                player.seekToNextMediaItem()
+                updateCurrentAudioFromPlayer()
+            } else if (repeatModeManager.getCurrentRepeatMode() == RepeatMode.ALL) {
+                player.seekTo(0, 0)
+                player.play()
+                updateCurrentAudioFromPlayer()
+            }
             return
         }
 
+        // Fallback: manual queue management
         val nextItem = queueManager.getNextItem()
         if (nextItem?.isAudio == true) {
             _audioItems.value.find { it.id == nextItem.id }?.let {
@@ -201,12 +245,22 @@ class AudioPlayerViewModel(
     }
 
     fun playPrevious() {
-        if (_isPlaylistMode.value && player.mediaItemCount > 1) {
-            audioManager.playPreviousAudio()
-            updateCurrentAudioFromPlayer()
+        if (player.mediaItemCount > 1) {
+            // Player has a queue, use built-in navigation
+            if (player.currentPosition > 3000) {
+                player.seekTo(0)
+            } else if (player.hasPreviousMediaItem()) {
+                player.seekToPreviousMediaItem()
+                updateCurrentAudioFromPlayer()
+            } else if (repeatModeManager.getCurrentRepeatMode() == RepeatMode.ALL) {
+                player.seekTo(player.mediaItemCount - 1, 0)
+                player.play()
+                updateCurrentAudioFromPlayer()
+            }
             return
         }
 
+        // Fallback: manual queue management
         val prevItem = queueManager.getPreviousItem()
         if (prevItem?.isAudio == true) {
             _audioItems.value.find { it.id == prevItem.id }?.let {
@@ -238,9 +292,24 @@ class AudioPlayerViewModel(
     // ============================================
 
     fun toggleRepeatMode() {
+        val oldMode = repeatModeManager.getCurrentRepeatMode()
         repeatModeManager.toggleRepeatMode()
+        val newMode = repeatModeManager.getCurrentRepeatMode()
+
+        // Apply immediately to player
+        player.repeatMode = newMode.toPlayerRepeatMode()
+
         viewModelScope.launch {
-            preferencesManager.saveRepeatMode(repeatMode.value)
+            preferencesManager.saveRepeatMode(newMode)
+        }
+
+        Log.d(TAG, "🔄 Repeat mode: $oldMode → $newMode")
+
+        // If switching to ALL and currently playing single, reload with full queue
+        if (newMode == RepeatMode.ALL && player.mediaItemCount == 1) {
+            _currentAudioItem.value?.let { audio ->
+                playAudio(audio, autoPlay = player.isPlaying)
+            }
         }
     }
 
@@ -285,6 +354,33 @@ class AudioPlayerViewModel(
     }
 
     // ============================================
+    // CONTEXT SWITCHING (NEW!)
+    // ============================================
+
+    /**
+     * Clear audio state when switching to video context
+     */
+    fun clearStateForContextSwitch() {
+        Log.d(TAG, "🧹 Clearing audio state for context switch")
+
+        // Save current position before stopping
+        saveCurrentAudioSession(force = true)
+
+        // Stop playback
+        player.stop()
+        player.clearMediaItems()
+
+        // Clear current audio
+        _currentAudioItem.value = null
+        _isPlaylistMode.value = false
+
+        // Clear queue
+        queueManager.clearQueue()
+
+        Log.d(TAG, "✅ Audio state cleared")
+    }
+
+    // ============================================
     // INTERNAL HELPERS
     // ============================================
 
@@ -294,6 +390,7 @@ class AudioPlayerViewModel(
             queueManager.updateQueueIndex(id)
             _audioItems.value.find { it.id == id }?.let {
                 _currentAudioItem.value = it
+                Log.d(TAG, "🔄 Updated current audio: ${it.title}")
             }
         }
     }
@@ -306,7 +403,16 @@ class AudioPlayerViewModel(
                 player.seekTo(0)
                 player.play()
             }
-            RepeatMode.ALL -> playNext()
+
+            RepeatMode.ALL -> {
+                // Player handles this automatically if queue is loaded
+                if (player.mediaItemCount > 1) {
+                    // Auto-advance handled by player
+                } else {
+                    playNext()
+                }
+            }
+
             RepeatMode.OFF -> {
                 // Session already saved
             }
@@ -363,5 +469,14 @@ class AudioPlayerViewModel(
         stateManager.cleanup()
         super.onCleared()
         Log.d(TAG, "🛑 AudioPlayerViewModel cleared")
+    }
+}
+
+// Extension function
+fun RepeatMode.toPlayerRepeatMode(): Int {
+    return when (this) {
+        RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+        RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+        RepeatMode.ALL -> Player.REPEAT_MODE_ALL
     }
 }

@@ -1,8 +1,8 @@
 [versions]
 # Gradle Plugins
-agp = "8.11.2"
-kotlin = "2.2.20"
-ksp = "2.2.0-2.0.2"
+agp = "8.9.1"
+kotlin = "2.1.21"
+ksp = "2.1.21-2.0.1"
 hilt = "2.57.1"
 
 # AndroidX Dependencies

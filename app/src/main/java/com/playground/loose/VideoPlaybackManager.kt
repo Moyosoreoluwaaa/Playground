@@ -4,7 +4,6 @@ import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
-import com.playground.loose.VideoItem
 import kotlinx.coroutines.delay
 
 /**
@@ -14,7 +13,7 @@ class VideoPlaybackManager(
     private val player: Player
 ) {
     companion object {
-        private const val TAG = "VideoPlaybackManager"
+        const val TAG = "VideoPlaybackManager"
     }
 
     /**
@@ -23,11 +22,13 @@ class VideoPlaybackManager(
     suspend fun playSingleVideo(
         video: VideoItem,
         savedPosition: Long = 0L,
-        autoPlay: Boolean = true
+        autoPlay: Boolean = true,
+        repeatMode: Int = Player.REPEAT_MODE_OFF
     ): Boolean {
         return try {
             Log.d(TAG, "=== PLAY VIDEO START ===")
             Log.d(TAG, "Title: ${video.title}")
+            Log.d(TAG, "Repeat Mode: $repeatMode")
 
             player.stop()
             player.clearMediaItems()
@@ -36,6 +37,10 @@ class VideoPlaybackManager(
             player.setMediaItem(mediaItem)
             player.prepare()
             player.playWhenReady = autoPlay
+
+            // FIXED: Apply repeat mode to player
+            player.repeatMode = repeatMode
+            Log.d(TAG, "🔄 Repeat mode set to: $repeatMode")
 
             // Wait for player to be ready
             var attempts = 0
@@ -54,6 +59,35 @@ class VideoPlaybackManager(
             true
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error playing video", e)
+            false
+        }
+    }
+
+    /**
+     * NEW: Play a playlist of video items (for RepeatMode.ALL)
+     */
+    suspend fun playVideoPlaylist(
+        playlist: List<VideoItem>,
+        startIndex: Int = 0,
+        savedPosition: Long = 0L,
+        repeatMode: Int = Player.REPEAT_MODE_ALL
+    ): Boolean {
+        return try {
+            Log.d(TAG, "▶️ Playing video playlist: ${playlist.size} items, start=$startIndex")
+
+            player.stop()
+            player.clearMediaItems()
+
+            val mediaItems = playlist.map { buildVideoMediaItem(it) }
+            player.setMediaItems(mediaItems, startIndex, savedPosition.coerceAtLeast(0L))
+            player.prepare()
+            player.playWhenReady = true
+            player.repeatMode = repeatMode
+
+            Log.d(TAG, "✅ Video playlist loaded successfully")
+            true
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error playing video playlist", e)
             false
         }
     }

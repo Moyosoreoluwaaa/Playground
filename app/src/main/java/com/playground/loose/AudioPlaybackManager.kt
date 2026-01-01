@@ -1,10 +1,9 @@
-package com.loose.mediaplayer.playback
+package com.playground.loose
 
 import android.util.Log
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
-import com.playground.loose.AudioItem
 import kotlinx.coroutines.delay
 
 /**
@@ -23,11 +22,13 @@ class AudioPlaybackManager(
     suspend fun playSingleAudio(
         audio: AudioItem,
         savedPosition: Long = 0L,
-        autoPlay: Boolean = true
+        autoPlay: Boolean = true,
+        repeatMode: Int = Player.REPEAT_MODE_OFF
     ): Boolean {
         return try {
             Log.d(TAG, "=== PLAY AUDIO START ===")
             Log.d(TAG, "Title: ${audio.title}")
+            Log.d(VideoPlaybackManager.Companion.TAG, "Repeat Mode: $repeatMode")
 
             player.stop()
             player.clearMediaItems()
@@ -38,7 +39,8 @@ class AudioPlaybackManager(
             player.playWhenReady = autoPlay
 
             // Disable repeat mode for single tracks
-            player.repeatMode = Player.REPEAT_MODE_OFF
+            player.repeatMode = repeatMode
+            Log.d(VideoPlaybackManager.Companion.TAG, "🔄 Repeat mode set to: $repeatMode")
 
             // Wait for player to be ready
             var attempts = 0

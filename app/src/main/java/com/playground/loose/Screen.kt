@@ -16,6 +16,7 @@ sealed class Screen(val route: String, val title: String) {
     object VideoLibrary : Screen("video_library", "Video")
     object AudioPlayer : Screen("audio_player", "Now Playing")
     object VideoPlayer : Screen("video_player", "Video Player")
+    object VideoAsAudioPlayer : Screen("video_as_audio_player", "Video Audio Mode")
 }
 
 @OptIn(UnstableApi::class)
@@ -47,8 +48,11 @@ fun LooseApp(sharedViewModel: SharedMediaViewModel = viewModel()) {
     val isVideoAsAudioMode by videoViewModel.isVideoAsAudioMode.collectAsState()
     val lastVideoFilter by videoViewModel.lastSelectedFilter.collectAsState()
 
-    // Shared state
-    val isAudioMode by sharedViewModel.isAudioMode.collectAsState()
+    // CRITICAL: Context state from SharedViewModel
+    val currentContext by sharedViewModel.currentContext.collectAsState()
+
+    // Derived state for backwards compatibility
+    val isPlaying = sharedViewModel.isPlayingAnyMedia()
 
     NavHost(
         navController = navController,
@@ -58,14 +62,11 @@ fun LooseApp(sharedViewModel: SharedMediaViewModel = viewModel()) {
         composable(Screen.AudioLibrary.route) {
             AudioLibraryScreen(
                 audioViewModel = audioViewModel,
+                sharedViewModel = sharedViewModel, // NEW
                 currentAudio = currentAudio,
                 currentVideo = currentVideo,
-                isAudioMode = isAudioMode,
-                isPlaying = audioIsPlaying,
-                onNavigateToPlayer = {
-                    sharedViewModel.switchToAudioMode()
-                    navController.navigate(Screen.AudioPlayer.route)
-                },
+                currentContext = currentContext, // NEW: Pass context
+                isPlaying = isPlaying,
                 navController = navController
             )
         }
@@ -74,30 +75,26 @@ fun LooseApp(sharedViewModel: SharedMediaViewModel = viewModel()) {
         composable(Screen.VideoLibrary.route) {
             VideoLibraryScreen(
                 videoItems = videoItems,
+                videoViewModel = videoViewModel, // NEW
+                sharedViewModel = sharedViewModel, // NEW
                 currentVideoId = currentVideo?.id,
+                currentContext = currentContext, // NEW: Pass context
                 viewMode = videoViewMode,
                 sortOption = videoSortOption,
+                onViewModeChange = videoViewModel::setVideoViewMode,
+                onSortChange = videoViewModel::setVideoSort,
+                currentVideo = currentVideo,
+                currentAudio = currentAudio, // NEW: For mini player
+                isPlaying = isPlaying,
+                recentlyPlayedIds = recentlyPlayedVideoIds,
+                navController = navController,
+                lastSelectedFilter = lastVideoFilter,
+                onFilterChange = videoViewModel::setVideoFilter,
                 onVideoClick = { video, filterContext ->
                     videoViewModel.playVideo(video, autoPlay = true, filterContext = filterContext)
                     sharedViewModel.switchToVideoMode()
                     navController.navigate(Screen.VideoPlayer.route)
                 },
-                onViewModeChange = videoViewModel::setVideoViewMode,
-                onSortChange = videoViewModel::setVideoSort,
-                onNavigateToPlayer = {
-                    if (currentVideo != null) {
-                        sharedViewModel.switchToVideoMode()
-                        navController.navigate(Screen.VideoPlayer.route)
-                    }
-                },
-                currentVideo = currentVideo,
-                isPlaying = videoIsPlaying,
-                onPlayPause = videoViewModel::playPause,
-                onNext = videoViewModel::playNext,
-                recentlyPlayedIds = recentlyPlayedVideoIds,
-                navController = navController,
-                lastSelectedFilter = lastVideoFilter,
-                onFilterChange = videoViewModel::setVideoFilter
             )
         }
 
@@ -106,13 +103,24 @@ fun LooseApp(sharedViewModel: SharedMediaViewModel = viewModel()) {
             EnhancedAudioPlayerScreen(
                 audioViewModel = audioViewModel,
                 videoViewModel = videoViewModel,
-                isVideoAsAudioMode = isVideoAsAudioMode,
+                isVideoAsAudioMode = false, // Always false for pure audio
+                currentVideo = null, // No video in pure audio mode
+                onBack = { navController.popBackStack() },
+                onNavigateToVideoPlayer = { } // Not used in pure audio mode
+            )
+        }
+
+        // 🎵 Video-as-Audio Player
+        composable(Screen.VideoAsAudioPlayer.route) {
+            VideoAsAudioPlayerScreen(
+                videoViewModel = videoViewModel,
                 currentVideo = currentVideo,
                 onBack = { navController.popBackStack() },
                 onNavigateToVideoPlayer = {
-                    sharedViewModel.switchToVideoMode()
+                    // FIXED: Switch context BEFORE navigating
+                    sharedViewModel.switchToVideoVisualContext()
                     navController.navigate(Screen.VideoPlayer.route) {
-                        popUpTo(Screen.AudioPlayer.route) { inclusive = true }
+                        popUpTo(Screen.VideoAsAudioPlayer.route) { inclusive = true }
                     }
                 }
             )
@@ -135,8 +143,12 @@ fun LooseApp(sharedViewModel: SharedMediaViewModel = viewModel()) {
                 onToggleRepeat = videoViewModel::toggleRepeatMode,
                 onSetPlaybackSpeed = videoViewModel::setPlaybackSpeed,
                 onSwitchToAudio = {
-                    sharedViewModel.switchToAudioMode()
-                    navController.navigate(Screen.AudioPlayer.route) {
+                    // FIXED: Switch context AND enable video-as-audio mode
+                    sharedViewModel.switchToVideoAsAudioContext()
+                    videoViewModel.playVideoAsAudio()
+
+                    // Navigate to dedicated screen
+                    navController.navigate(Screen.VideoAsAudioPlayer.route) {
                         popUpTo(Screen.VideoPlayer.route) { inclusive = true }
                     }
                 },

@@ -1,3 +1,5 @@
+@file:OptIn(ExperimentalMaterial3Api::class)
+
 package com.playground.loose
 
 import androidx.compose.foundation.background
@@ -74,15 +76,15 @@ import java.util.Locale
 private val MINI_PLAYER_HEIGHT = 72.dp
 
 @androidx.annotation.OptIn(UnstableApi::class)
-@OptIn(ExperimentalMaterial3Api::class)
+// Add this at the top of AudioLibraryScreen.kt, replacing the existing function signature:
 @Composable
 fun AudioLibraryScreen(
     audioViewModel: AudioPlayerViewModel,
+    sharedViewModel: SharedMediaViewModel, // NEW: Need shared context
     currentAudio: AudioItem?,
     currentVideo: VideoItem? = null,
-    isAudioMode: Boolean,
+    currentContext: PlaybackContext, // NEW: Context instead of isAudioMode
     isPlaying: Boolean,
-    onNavigateToPlayer: () -> Unit,
     navController: NavController
 ) {
     val audioItems by audioViewModel.audioItems.collectAsState()
@@ -100,25 +102,27 @@ fun AudioLibraryScreen(
     val searchFocusRequester = remember { FocusRequester() }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
-    // Determine the content to show (Drill-down OR Tabs)
     when {
-        // State 1: Playlist Tracks Drill-down View
         activePlaylist != null -> {
             PlaylistTrackListScreen(
                 playlist = activePlaylist!!,
                 allAudioItems = audioItems,
                 currentAudioId = currentAudio?.id,
                 onAudioClick = { audio ->
+                    // FIXED: Context switching!
+                    sharedViewModel.switchToAudioContext()
+
                     val playlistItems = audioItems.filter { it.id in activePlaylist!!.audioIds }
                     val startIndex = playlistItems.indexOf(audio)
                     audioViewModel.playSelectedAudio(playlistItems, startIndex)
-                    onNavigateToPlayer()
+
+                    // Navigate to correct screen
+                    navController.navigate(Screen.AudioPlayer.route)
                 },
                 onBack = { activePlaylist = null }
             )
         }
 
-        // State 2: Main Tabs (Library/Playlists)
         else -> {
             Scaffold(
                 topBar = {
@@ -142,7 +146,6 @@ fun AudioLibraryScreen(
                             TopAppBar(title = { Text("Playlists") })
                         }
 
-                        // Tab Row
                         TabRow(selectedTabIndex = selectedTab.ordinal) {
                             AudioLibraryTab.entries.forEach { tab ->
                                 Tab(
@@ -156,16 +159,24 @@ fun AudioLibraryScreen(
                 },
                 bottomBar = {
                     Column {
-                        // MiniPlayer
+                        // FIXED: Context-aware MiniPlayer
                         MiniPlayer(
+                            currentContext = currentContext,
                             currentAudio = currentAudio,
                             currentVideo = currentVideo,
                             isPlaying = isPlaying,
-                            isAudioMode = isAudioMode,
-                            onPlayPause = audioViewModel::playPause,
-                            onShowQueue = { /* No-op for now */ },
-                            onNext = audioViewModel::playNext,
-                            onClick = onNavigateToPlayer
+                            onPlayPause = sharedViewModel::playPause, // Use shared handler
+                            onShowQueue = { /* TODO */ },
+                            onNext = sharedViewModel::playNext, // Use shared handler
+                            onClick = {
+                                // FIXED: Navigate based on context
+                                when (currentContext) {
+                                    PlaybackContext.AUDIO -> navController.navigate(Screen.AudioPlayer.route)
+                                    PlaybackContext.VIDEO_VISUAL -> navController.navigate(Screen.VideoPlayer.route)
+                                    PlaybackContext.VIDEO_AUDIO_ONLY -> navController.navigate(Screen.VideoAsAudioPlayer.route)
+                                    PlaybackContext.NONE -> { /* Do nothing */ }
+                                }
+                            }
                         )
 
                         NavigationBar {
@@ -211,8 +222,10 @@ fun AudioLibraryScreen(
                             sortOption = sortOption,
                             searchQuery = searchQuery,
                             onAudioClick = { audio ->
+                                // FIXED: Context switching before playing!
+                                sharedViewModel.switchToAudioContext()
                                 audioViewModel.playAudio(audio)
-                                onNavigateToPlayer()
+                                navController.navigate(Screen.AudioPlayer.route)
                             },
                             modifier = Modifier.padding(paddingValues)
                         )
@@ -232,7 +245,6 @@ fun AudioLibraryScreen(
         }
     }
 
-    // Bottom Sheet for Playlist Creation
     if (showCreateSheet) {
         ModalBottomSheet(
             onDismissRequest = { showCreateSheet = false },
@@ -249,6 +261,9 @@ fun AudioLibraryScreen(
         }
     }
 }
+
+// Keep all other helper functions the same...
+// The key change is in the onClick handlers and MiniPlayer usage
 
 /**
  * =================================================================

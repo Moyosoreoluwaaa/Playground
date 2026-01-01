@@ -62,37 +62,45 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.media3.common.util.UnstableApi
 import androidx.navigation.NavController
 import coil.compose.AsyncImage
+import com.playground.loose.AudioItem
 import com.playground.loose.LibrarySearchBar
 import com.playground.loose.MiniPlayer
+import com.playground.loose.PlaybackContext
 import com.playground.loose.Screen
+import com.playground.loose.SharedMediaViewModel
 import com.playground.loose.SortOption
 import com.playground.loose.VideoFilter
 import com.playground.loose.VideoItem
+import com.playground.loose.VideoPlayerViewModel
 import com.playground.loose.ViewMode
 import com.playground.loose.formatDuration
 
+@UnstableApi
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VideoLibraryScreen(
     videoItems: List<VideoItem>,
+    onVideoClick: (VideoItem, VideoFilter) -> Unit, // NEW: Pass filter context
+    videoViewModel: VideoPlayerViewModel,
+    sharedViewModel: SharedMediaViewModel, // NEW
     currentVideoId: Long?,
+    currentContext: PlaybackContext, // NEW: Replace multiple booleans
     viewMode: ViewMode,
     sortOption: SortOption,
-    onVideoClick: (VideoItem, VideoFilter) -> Unit, // NEW: Pass filter context
     onViewModeChange: (ViewMode) -> Unit,
     onSortChange: (SortOption) -> Unit,
-    onNavigateToPlayer: () -> Unit,
     currentVideo: VideoItem? = null,
+    currentAudio: AudioItem? = null, // NEW: For mini player
     isPlaying: Boolean = false,
-    onPlayPause: () -> Unit = {},
-    onNext: () -> Unit = {},
     recentlyPlayedIds: List<Long> = emptyList(),
     navController: NavController,
-    lastSelectedFilter: VideoFilter = VideoFilter.ALL, // NEW: Restore last tab
-    onFilterChange: (VideoFilter) -> Unit = {} // NEW: Save filter changes
+    lastSelectedFilter: VideoFilter = VideoFilter.ALL,
+    onFilterChange: (VideoFilter) -> Unit = {}
 ) {
+
     var showSortMenu by remember { mutableStateOf(false) }
     var selectedTabIndex by remember { mutableIntStateOf(lastSelectedFilter.ordinal) }
     var searchQuery by remember { mutableStateOf("") }
@@ -154,6 +162,14 @@ fun VideoLibraryScreen(
     val allScrollState = rememberLazyListState()
     val shortsScrollState = rememberLazyListState()
     val fullScrollState = rememberLazyListState()
+
+    // CRITICAL FIX: Update onVideoClick to include context switching
+    val handleVideoClick: (VideoItem, VideoFilter) -> Unit = { video, filter ->
+        // Switch to video visual context BEFORE playing
+        sharedViewModel.switchToVideoVisualContext()
+        videoViewModel.playVideo(video, autoPlay = true, filterContext = filter)
+        navController.navigate(Screen.VideoPlayer.route)
+    }
 
     Scaffold(
         topBar = {
@@ -252,15 +268,24 @@ fun VideoLibraryScreen(
         bottomBar = {
             Column {
                 if (currentVideoId != null) {
+                    // FIXED: Context-aware MiniPlayer (same as AudioLibraryScreen)
                     MiniPlayer(
-                        currentAudio = null,
+                        currentContext = currentContext,
+                        currentAudio = currentAudio,
                         currentVideo = currentVideo,
                         isPlaying = isPlaying,
-                        isAudioMode = false,
-                        onPlayPause = onPlayPause,
+                        onPlayPause = sharedViewModel::playPause,
                         onShowQueue = {},
-                        onNext = onNext,
-                        onClick = onNavigateToPlayer
+                        onNext = sharedViewModel::playNext,
+                        onClick = {
+                            // Navigate based on context
+                            when (currentContext) {
+                                PlaybackContext.AUDIO -> navController.navigate(Screen.AudioPlayer.route)
+                                PlaybackContext.VIDEO_VISUAL -> navController.navigate(Screen.VideoPlayer.route)
+                                PlaybackContext.VIDEO_AUDIO_ONLY -> navController.navigate(Screen.VideoAsAudioPlayer.route)
+                                PlaybackContext.NONE -> { /* Do nothing */ }
+                            }
+                        }
                     )
                 }
 

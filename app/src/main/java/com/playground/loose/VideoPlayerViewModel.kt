@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,10 +19,13 @@ import kotlinx.coroutines.launch
  * ViewModel specifically for Video playback
  * Handles: Video library, video playback, and video-as-audio mode
  */
-class VideoPlayerViewModel(
+@UnstableApi
+class VideoPlayerViewModel
+    (
     application: Application,
     private val player: Player,
-    private val sessionManager: SessionManager
+    private val sessionManager: SessionManager,
+    private val sharedViewModel: SharedMediaViewModel // NEW: Reference to parent
 ) : AndroidViewModel(application) {
 
     companion object {
@@ -34,7 +38,7 @@ class VideoPlayerViewModel(
     private val preferencesManager = PreferencesManager(application)
     private val mediaScanner = MediaScanner(application)
     private val videoManager = VideoPlaybackManager(player)
-    private val stateManager = PlaybackStateManager(player, viewModelScope)
+    val stateManager = PlaybackStateManager(player, viewModelScope)
     private val queueManager = MediaQueueManager()
     private val videoAsAudioManager = VideoAsAudioManager()
     private val repeatModeManager = RepeatModeManager(player)
@@ -125,53 +129,6 @@ class VideoPlayerViewModel(
     // ============================================
     // VIDEO PLAYBACK FUNCTIONS
     // ============================================
-
-    /**
-     * NEW: Play video with filter context for queue building
-     */
-    fun playVideo(
-        video: VideoItem,
-        autoPlay: Boolean = true,
-        filterContext: VideoFilter = VideoFilter.ALL
-    ) {
-        if (lastPlayedVideoId == video.id && _currentVideoItem.value?.id == video.id && !autoPlay) {
-            Log.d(TAG, "⏭️ Ignoring duplicate playVideo call")
-            return
-        }
-
-        lastPlayedVideoId = video.id
-        _currentFilterContext.value = filterContext
-
-        setupPlayerListener()
-
-        viewModelScope.launch {
-            val savedPosition = _videoPositions.value[video.id] ?: 0L
-
-            val success = videoManager.playSingleVideo(video, savedPosition, autoPlay)
-
-            if (success) {
-                _currentVideoItem.value = video
-                videoAsAudioManager.disableVideoAsAudioMode()
-
-                // Build queue based on filter context
-                val filteredVideos = getFilteredVideos(filterContext)
-                queueManager.buildFilteredVideoQueue(filteredVideos, video, filterContext)
-
-                Log.d(TAG, "🎬 Playing video with filter: $filterContext (queue: ${filteredVideos.size} items)")
-
-                preferencesManager.addRecentlyPlayedVideo(video.id)
-                _recentlyPlayedVideoIds.value =
-                    preferencesManager.appPreferences.first().recentlyPlayedVideos.map { it.videoId }
-
-                sessionManager.saveSession(
-                    mediaId = video.id,
-                    position = if (savedPosition > 0) savedPosition else 0L,
-                    isAudioMode = false,
-                    force = true
-                )
-            }
-        }
-    }
 
     /**
      * NEW: Get filtered videos based on filter type
@@ -265,13 +222,6 @@ class VideoPlayerViewModel(
     // ============================================
     // PLAYBACK FEATURES
     // ============================================
-
-    fun toggleRepeatMode() {
-        repeatModeManager.toggleRepeatMode()
-        viewModelScope.launch {
-            preferencesManager.saveRepeatMode(repeatMode.value)
-        }
-    }
 
     fun setPlaybackSpeed(speed: Float) {
         speedManager.setSpeed(speed)
@@ -371,5 +321,107 @@ class VideoPlayerViewModel(
         stateManager.cleanup()
         super.onCleared()
         Log.d(TAG, "🛑 VideoPlayerViewModel cleared")
+    }
+
+    // Add this extension function at the top of your VideoPlayerViewModel.kt file
+// (or in a separate utils file)
+
+    fun RepeatMode.toPlayerRepeatMode(): Int {
+        return when (this) {
+            RepeatMode.OFF -> androidx.media3.common.Player.REPEAT_MODE_OFF
+            RepeatMode.ONE -> androidx.media3.common.Player.REPEAT_MODE_ONE
+            RepeatMode.ALL -> androidx.media3.common.Player.REPEAT_MODE_ALL
+        }
+    }
+
+// Then update the playVideo function in VideoPlayerViewModel:
+
+    fun playVideo(
+        video: VideoItem,
+        autoPlay: Boolean = true,
+        filterContext: VideoFilter = VideoFilter.ALL
+    ) {
+        if (lastPlayedVideoId == video.id && _currentVideoItem.value?.id == video.id && !autoPlay) {
+            Log.d(TAG, "⏭️ Ignoring duplicate playVideo call")
+            return
+        }
+
+        lastPlayedVideoId = video.id
+        _currentFilterContext.value = filterContext
+
+        setupPlayerListener()
+
+        viewModelScope.launch {
+            val savedPosition = _videoPositions.value[video.id] ?: 0L
+
+            // FIXED: Pass the current repeat mode to the video manager
+            val success = videoManager.playSingleVideo(
+                video = video,
+                savedPosition = savedPosition,
+                autoPlay = autoPlay,
+                repeatMode = repeatModeManager.getCurrentRepeatMode().toPlayerRepeatMode()
+            )
+
+            if (success) {
+                _currentVideoItem.value = video
+                videoAsAudioManager.disableVideoAsAudioMode()
+
+                // Build queue based on filter context
+                val filteredVideos = getFilteredVideos(filterContext)
+                queueManager.buildFilteredVideoQueue(filteredVideos, video, filterContext)
+
+                Log.d(TAG, "🎬 Playing video with filter: $filterContext (queue: ${filteredVideos.size} items)")
+
+                preferencesManager.addRecentlyPlayedVideo(video.id)
+                _recentlyPlayedVideoIds.value =
+                    preferencesManager.appPreferences.first().recentlyPlayedVideos.map { it.videoId }
+
+                sessionManager.saveSession(
+                    mediaId = video.id,
+                    position = if (savedPosition > 0) savedPosition else 0L,
+                    isAudioMode = false,
+                    force = true
+                )
+            }
+        }
+    }
+
+    // Also update toggleRepeatMode to apply changes immediately:
+    fun toggleRepeatMode() {
+        repeatModeManager.toggleRepeatMode()
+
+        // FIXED: Apply the new repeat mode to player immediately
+        player.repeatMode = repeatModeManager.getCurrentRepeatMode().toPlayerRepeatMode()
+
+        viewModelScope.launch {
+            preferencesManager.saveRepeatMode(repeatMode.value)
+        }
+
+        Log.d(TAG, "🔄 Repeat mode toggled to: ${repeatMode.value}")
+    }
+
+    /**
+     * Clear video state when switching to audio context
+     */
+    fun clearStateForContextSwitch() {
+        Log.d(TAG, "🧹 Clearing video state for context switch")
+
+        // Save current position before stopping
+        saveCurrentVideoSession(force = true)
+
+        // Stop playback
+        player.stop()
+        player.clearMediaItems()
+
+        // Clear current video
+        _currentVideoItem.value = null
+
+        // Return to normal video mode (disable audio-only mode)
+        returnToVideoPlayer()
+
+        // Clear queue
+        queueManager.clearQueue()
+
+        Log.d(TAG, "✅ Video state cleared")
     }
 }

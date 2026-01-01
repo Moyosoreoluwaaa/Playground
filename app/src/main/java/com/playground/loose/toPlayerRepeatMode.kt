@@ -9,13 +9,13 @@ import androidx.media3.common.Player
 /**
  * Convert RepeatMode enum to Player.RepeatMode constant
  */
-fun RepeatMode.toPlayerRepeatMode(): Int {
-    return when (this) {
-        RepeatMode.OFF -> Player.REPEAT_MODE_OFF
-        RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-        RepeatMode.ALL -> Player.REPEAT_MODE_ALL
-    }
-}
+//fun RepeatMode.toPlayerRepeatMode(): Int {
+//    return when (this) {
+//        RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+//        RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+//        RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+//    }
+//}
 
 /**
  * Convert Player.RepeatMode constant to RepeatMode enum
